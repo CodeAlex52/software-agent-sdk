@@ -1235,6 +1235,7 @@ class ConversationSettings(BaseModel):
         json_schema_extra={
             SETTINGS_METADATA_KEY: SettingsFieldMetadata(
                 label="Container memory limit",
+                prominence=SettingProminence.MAJOR,
             ).model_dump(),
             SETTINGS_SECTION_METADATA_KEY: _RUNTIME_SECTION_METADATA,
         },
@@ -1249,6 +1250,7 @@ class ConversationSettings(BaseModel):
         json_schema_extra={
             SETTINGS_METADATA_KEY: SettingsFieldMetadata(
                 label="Container CPU limit",
+                prominence=SettingProminence.MAJOR,
             ).model_dump(),
             SETTINGS_SECTION_METADATA_KEY: _RUNTIME_SECTION_METADATA,
         },
@@ -1262,6 +1264,7 @@ class ConversationSettings(BaseModel):
         json_schema_extra={
             SETTINGS_METADATA_KEY: SettingsFieldMetadata(
                 label="Browser in containers",
+                prominence=SettingProminence.MAJOR,
             ).model_dump(),
             SETTINGS_SECTION_METADATA_KEY: _RUNTIME_SECTION_METADATA,
         },

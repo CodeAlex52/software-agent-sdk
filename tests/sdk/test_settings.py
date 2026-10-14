@@ -235,6 +235,8 @@ def test_conversation_settings_export_schema_groups_sections() -> None:
         "head",
     ]
     assert runtime_fields["container_browser"].default is True
+    # One tier: the page has four fields, none worth hiding behind "All".
+    assert {f.prominence for f in runtime_fields.values()} == {SettingProminence.MAJOR}
 
 
 @pytest.mark.parametrize(
