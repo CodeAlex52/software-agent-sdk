@@ -55,7 +55,8 @@ def load_hooks(
 
 
 def _same_file(a: Path, b: Path) -> bool:
-    with suppress(OSError):
+    # Python 3.12 raises RuntimeError on a symlink loop; 3.13 raises OSError.
+    with suppress(OSError, RuntimeError):
         return a.resolve() == b.resolve()
     return False
 

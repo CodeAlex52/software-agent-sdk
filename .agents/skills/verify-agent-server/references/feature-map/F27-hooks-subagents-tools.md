@@ -890,10 +890,11 @@ Preconditions:
 - `POST /api/hooks` never reports an error: a missing, empty or broken
   `hooks.json` is the same `{"hook_config": null}`. Check the server log
   (`logs --grep 'Failed to load hooks'`) to tell them apart.
-- Only `<project_dir>/.openhands/hooks.json` is read by the route. The SDK's
-  `HookConfig.load()` also falls back to `$OH_PERSISTENCE_DIR/hooks.json`, but
-  the route does not, and conversations load no hooks unless `hook_config`
-  (or a plugin) brings them.
+- The route merges `<project_dir>/.openhands/hooks.json` and
+  `$OH_PERSISTENCE_DIR/hooks.json` (`~/.openhands/hooks.json`), project
+  handlers first; `load_project_hooks` / `load_user_hooks` pick the sources.
+  The SDK's `HookConfig.load()` instead takes the first file it finds.
+  Conversations load no hooks unless `hook_config` (or a plugin) brings them.
 - Hook event keys are snake_case in responses (`pre_tool_use`, ...); PascalCase
   and the `{"hooks": {...}}` wrapper are accepted on disk. `HookExecutionEvent`
   reports the PascalCase name (`hook_event_type: PreToolUse`). The `async`

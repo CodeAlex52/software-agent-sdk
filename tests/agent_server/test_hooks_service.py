@@ -236,3 +236,27 @@ class TestLoadHooks:
         _write_hooks(user_dir / "hooks.json", "echo user")
 
         assert load_hooks(project_dir=str(tmp_path), load_user_hooks=False) is None
+
+    def test_symlink_loop_project_file_keeps_user_hooks(self, tmp_path, monkeypatch):
+        user_dir = tmp_path / "user"
+        monkeypatch.setenv("OH_PERSISTENCE_DIR", str(user_dir))
+        _write_hooks(user_dir / "hooks.json", "echo user")
+        loop = tmp_path / "project" / ".openhands" / "hooks.json"
+        loop.parent.mkdir(parents=True)
+        loop.symlink_to(loop)
+
+        # Python 3.12 raises RuntimeError from resolve() on a loop; 3.13 does
+        # not, so raise it here to cover both.
+        real_resolve = Path.resolve
+
+        def resolve(self, strict=False):
+            if self == loop:
+                raise RuntimeError(f"Symlink loop from {self!r}")
+            return real_resolve(self, strict)
+
+        monkeypatch.setattr(Path, "resolve", resolve)
+
+        result = load_hooks(project_dir=str(tmp_path / "project"))
+
+        assert result is not None
+        assert [m.hooks[0].command for m in result.stop] == ["echo user"]
