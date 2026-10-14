@@ -8,7 +8,7 @@ agent-server.
 
 from __future__ import annotations
 
-from typing import Annotated, Any, cast
+from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
 from pydantic import (
