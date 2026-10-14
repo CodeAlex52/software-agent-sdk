@@ -63,6 +63,7 @@ from openhands.sdk.agent.acp_file_credentials import CODEX_AUTH_SECRET_NAME
 from openhands.sdk.agent.base import AgentBase
 from openhands.sdk.conversation.impl.local_conversation import LocalConversation
 from openhands.sdk.conversation.persistence_const import BASE_STATE
+from openhands.sdk.conversation.request import WorktreeBase
 from openhands.sdk.conversation.state import (
     ConversationExecutionStatus,
     ConversationState,
@@ -227,7 +228,9 @@ def _plan_conversation_worktree(
     )
 
 
-def _create_conversation_worktree(plan: _WorktreePlan) -> LocalWorkspace:
+def _create_conversation_worktree(
+    plan: _WorktreePlan, base: WorktreeBase = "default_branch"
+) -> LocalWorkspace:
     repo_root = plan.repo_root
     plan.worktree_root.parent.mkdir(parents=True, exist_ok=True)
 
@@ -253,7 +256,7 @@ def _create_conversation_worktree(plan: _WorktreePlan) -> LocalWorkspace:
             "-b",
             plan.branch,
             str(plan.worktree_root),
-            _get_worktree_start_point(repo_root),
+            "HEAD" if base == "head" else _get_worktree_start_point(repo_root),
         ],
         repo_root,
     )
@@ -1578,7 +1581,7 @@ class ConversationService:
             )
         )
         workspace = (
-            _create_conversation_worktree(worktree)
+            _create_conversation_worktree(worktree, request.worktree_base)
             if worktree is not None
             else request.workspace
         )

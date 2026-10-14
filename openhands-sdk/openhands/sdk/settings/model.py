@@ -497,6 +497,10 @@ type AgentKind = Literal["openhands", "llm", "acp"]
 AGENT_SETTINGS_SCHEMA_VERSION = 8
 CONVERSATION_SETTINGS_SCHEMA_VERSION = 1
 
+_RUNTIME_SECTION_METADATA = SettingsSectionMetadata(
+    key="runtime", label="Runtime"
+).model_dump()
+
 
 class AgentSettingsBase(BaseModel):
     """Shared base for all agent-settings variants.
@@ -1207,6 +1211,64 @@ class ConversationSettings(BaseModel):
             ).model_dump(),
         },
     )
+    worktree_base: Literal["default_branch", "head"] = Field(
+        default="default_branch",
+        description=(
+            "Ref a new conversation worktree branches from: the repository's "
+            "default branch, or the checkout's current HEAD."
+        ),
+        json_schema_extra={
+            SETTINGS_METADATA_KEY: SettingsFieldMetadata(
+                label="Create worktrees from",
+                prominence=SettingProminence.MAJOR,
+            ).model_dump(),
+            SETTINGS_SECTION_METADATA_KEY: _RUNTIME_SECTION_METADATA,
+        },
+    )
+    container_memory: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Memory limit for a Docker conversation's container, e.g. `4g`. "
+            "Unset keeps the server default."
+        ),
+        json_schema_extra={
+            SETTINGS_METADATA_KEY: SettingsFieldMetadata(
+                label="Container memory limit",
+                prominence=SettingProminence.MAJOR,
+            ).model_dump(),
+            SETTINGS_SECTION_METADATA_KEY: _RUNTIME_SECTION_METADATA,
+        },
+    )
+    container_cpus: float | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "CPUs a Docker conversation's container may use. Unset keeps the "
+            "server default."
+        ),
+        json_schema_extra={
+            SETTINGS_METADATA_KEY: SettingsFieldMetadata(
+                label="Container CPU limit",
+                prominence=SettingProminence.MAJOR,
+            ).model_dump(),
+            SETTINGS_SECTION_METADATA_KEY: _RUNTIME_SECTION_METADATA,
+        },
+    )
+    container_browser: bool = Field(
+        default=True,
+        description=(
+            "Run a browser in Docker conversation containers. Has no effect "
+            "when the server's image ships without one."
+        ),
+        json_schema_extra={
+            SETTINGS_METADATA_KEY: SettingsFieldMetadata(
+                label="Browser in containers",
+                prominence=SettingProminence.MAJOR,
+            ).model_dump(),
+            SETTINGS_SECTION_METADATA_KEY: _RUNTIME_SECTION_METADATA,
+        },
+    )
 
     @classmethod
     def export_schema(cls) -> SettingsSchema:
@@ -1299,7 +1361,19 @@ class ConversationSettings(BaseModel):
         payload.setdefault("confirmation_policy", self._build_confirmation_policy())
         payload.setdefault("security_analyzer", self._build_security_analyzer())
         payload.setdefault("max_iterations", self.max_iterations)
+        payload.setdefault("worktree_base", self.worktree_base)
+        payload.setdefault("container", self._container_options())
         return payload
+
+    def _container_options(self) -> dict[str, Any] | None:
+        options = {
+            "memory": self.container_memory,
+            "cpus": self.container_cpus,
+            # Only an opt-out is sent: True keeps the server's own default.
+            "browser": False if not self.container_browser else None,
+        }
+        options = {key: value for key, value in options.items() if value is not None}
+        return options or None
 
     def create_request(
         self,

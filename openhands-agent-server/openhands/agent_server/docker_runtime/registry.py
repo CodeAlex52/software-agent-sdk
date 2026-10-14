@@ -27,6 +27,7 @@ from openhands.agent_server.models import (
 )
 from openhands.agent_server.persistence.store import _get_persistence_dir
 from openhands.agent_server.storage import Reclaimer
+from openhands.sdk.conversation.request import ConversationContainerOptions
 from openhands.sdk.conversation.state import ConversationExecutionStatus
 from openhands.sdk.logger import get_logger
 from openhands.sdk.utils.cipher import Cipher
@@ -403,6 +404,7 @@ class DockerConversationRegistry(ConversationRegistry):
 
     def _build_container(self, conversation_id: UUID) -> ConversationContainer:
         identity = self.provisioning.load(conversation_id)
+        options = identity.container or ConversationContainerOptions()
         runtime_dir = self.provisioning.runtime_dir(conversation_id)
         persistence_dir = self.provisioning.direct_child(runtime_dir, "persistence")
         conversation_dir = self.conversation_dir(conversation_id)
@@ -418,7 +420,10 @@ class DockerConversationRegistry(ConversationRegistry):
                 "OH_PERSISTENCE_DIR": _PERSISTENCE_DIR,
                 "OH_CONVERSATION_RUNTIME": "local",
                 "OH_ENABLE_BROWSER": (
-                    "1" if container_browser_enabled(self.config) else "0"
+                    "1"
+                    if container_browser_enabled(self.config)
+                    and options.browser is not False
+                    else "0"
                 ),
                 "OH_SECRET_KEY": identity.encryption_key.get_secret_value(),
                 V1_SESSION_API_KEY_ENV: identity.api_key.get_secret_value(),
@@ -452,10 +457,16 @@ class DockerConversationRegistry(ConversationRegistry):
             (workspace_dir, _WORKSPACE_DIR),
         ):
             flags.extend(("-v", f"{host}:{target}"))
-        if self.config.conversation_container_memory:
-            flags.extend(("--memory", self.config.conversation_container_memory))
-        if self.config.conversation_container_cpus is not None:
-            flags.extend(("--cpus", str(self.config.conversation_container_cpus)))
+        memory = options.memory or self.config.conversation_container_memory
+        if memory:
+            flags.extend(("--memory", memory))
+        cpus = (
+            options.cpus
+            if options.cpus is not None
+            else self.config.conversation_container_cpus
+        )
+        if cpus is not None:
+            flags.extend(("--cpus", str(cpus)))
         if self.config.conversation_container_pids_limit is not None:
             flags.extend(
                 ("--pids-limit", str(self.config.conversation_container_pids_limit))

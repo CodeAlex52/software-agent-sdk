@@ -201,7 +201,7 @@ def test_conversation_settings_export_schema_groups_sections() -> None:
 
     assert schema.model_name == "ConversationSettings"
     section_keys = [section.key for section in schema.sections]
-    assert section_keys == ["general", "verification"]
+    assert section_keys == ["general", "verification", "runtime"]
 
     sections = {s.key: s for s in schema.sections}
     general_fields = {f.key: f for f in sections["general"].fields}
@@ -222,6 +222,48 @@ def test_conversation_settings_export_schema_groups_sections() -> None:
     assert verification_fields["security_analyzer"].default == "llm"
     assert verification_fields["security_analyzer"].choices[0].value == "llm"
     assert verification_fields["security_analyzer"].depends_on == ["confirmation_mode"]
+
+    runtime_fields = {f.key: f for f in sections["runtime"].fields}
+    assert set(runtime_fields) == {
+        "worktree_base",
+        "container_memory",
+        "container_cpus",
+        "container_browser",
+    }
+    assert [c.value for c in runtime_fields["worktree_base"].choices] == [
+        "default_branch",
+        "head",
+    ]
+    assert runtime_fields["container_browser"].default is True
+    # One tier: the page has four fields, none worth hiding behind "All".
+    assert {f.prominence for f in runtime_fields.values()} == {SettingProminence.MAJOR}
+
+
+@pytest.mark.parametrize(
+    ("settings", "container"),
+    [
+        (ConversationSettings(), None),
+        (
+            ConversationSettings(
+                container_memory="4g", container_cpus=2, container_browser=False
+            ),
+            {"memory": "4g", "cpus": 2.0, "browser": False},
+        ),
+    ],
+)
+def test_conversation_settings_runtime_fields_reach_the_start_request(
+    settings: ConversationSettings, container: dict[str, Any] | None
+) -> None:
+    request = settings.model_copy(update={"worktree_base": "head"}).create_request(
+        StartConversationRequest,
+        agent=Agent(llm=LLM(model="test-model", usage_id="test-llm"), tools=[]),
+        workspace=LocalWorkspace(working_dir="/tmp"),
+    )
+
+    assert request.worktree_base == "head"
+    assert (
+        request.container.model_dump(exclude_none=True) if request.container else None
+    ) == container
 
 
 def test_export_settings_schema_remains_backward_compatible():

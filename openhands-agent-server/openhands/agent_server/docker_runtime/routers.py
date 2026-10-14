@@ -40,6 +40,7 @@ from openhands.agent_server.models import (
 )
 from openhands.agent_server.persistence import PersistedSettings, get_settings_store
 from openhands.agent_server.utils import safe_rmtree
+from openhands.sdk.conversation.request import ConversationContainerOptions
 from openhands.sdk.launch import AgentLaunchError, LaunchStoreError, ResolvedLaunch
 from openhands.sdk.logger import get_logger
 from openhands.sdk.profiles.agent_profile import LaunchedAgentProfile
@@ -159,7 +160,14 @@ async def start_conversation(
         raise HTTPException(422, str(exc)) from exc
     try:
         payload, launched = await _prepare_forward(body, registry, existing=existing)
-        identity = registry.provisioning.create(conversation_id, host_workspace)
+        # Kept from the first start, so a restarted container gets the same.
+        identity = registry.provisioning.create(
+            conversation_id,
+            host_workspace,
+            container=ConversationContainerOptions.model_validate(body["container"])
+            if body.get("container")
+            else None,
+        )
         if launched is not None and identity.launched_agent_profile is None:
             identity = identity.model_copy(update={"launched_agent_profile": launched})
             registry.provisioning.save(identity)

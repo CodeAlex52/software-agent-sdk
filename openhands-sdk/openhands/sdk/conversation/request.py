@@ -105,6 +105,40 @@ class AgentLaunchAdditions(BaseModel):
     )
 
 
+WorktreeBase = Literal["default_branch", "head"]
+"""Ref a conversation worktree branches from: the repository's default branch
+(fetched from ``origin`` when there is one) or the checkout's current ``HEAD``."""
+
+
+class ConversationContainerOptions(BaseModel):
+    """Resources for a conversation's container.
+
+    Only the Docker runtime applies them, when it creates the conversation's
+    container; a local conversation ignores them. An unset field keeps the
+    server's configured default.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    memory: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Container memory limit in `docker run --memory` syntax.",
+    )
+    cpus: float | None = Field(
+        default=None,
+        gt=0,
+        description="Number of CPUs the container may use (`docker run --cpus`).",
+    )
+    browser: bool | None = Field(
+        default=None,
+        description=(
+            "False turns the browser off. True cannot turn it on for an image "
+            "without one."
+        ),
+    )
+
+
 class ConversationConfig(BaseModel):
     """Shared conversation configuration — everything except the agent.
 
@@ -128,6 +162,14 @@ class ConversationConfig(BaseModel):
             "a dedicated git worktree for this conversation under "
             "`/tmp/conversation-worktrees/<conversation_id>/<project_name>`."
         ),
+    )
+    worktree_base: WorktreeBase = Field(
+        default="default_branch",
+        description="Ref the conversation worktree branches from.",
+    )
+    container: ConversationContainerOptions | None = Field(
+        default=None,
+        description="Resources for the conversation's container (Docker runtime).",
     )
     conversation_id: UUID | None = Field(
         default=None,
