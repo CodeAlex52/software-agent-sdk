@@ -156,8 +156,6 @@ def build_server_info(
     )
     if app_backend_ingress_url:
         info.capabilities.append("canvas_app_backend_bridge_v1")
-    if conversation_runtime_selectable:
-        info.capabilities.append("selectable_conversation_runtime_v1")
     return info
 
 

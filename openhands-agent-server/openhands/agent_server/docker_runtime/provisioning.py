@@ -116,10 +116,7 @@ class RuntimeProvisioningStore:
         return identity
 
     def create(
-        self,
-        conversation_id: UUID,
-        workspace_path: Path | None = None,
-        container: ConversationContainerOptions | None = None,
+        self, conversation_id: UUID, workspace_path: Path | None = None
     ) -> RuntimeIdentity:
         path = self.manifest_path(conversation_id)
         with FileLock(str(path) + ".lock"):
@@ -164,7 +161,6 @@ class RuntimeProvisioningStore:
                 api_key=SecretStr(secrets.token_urlsafe(32)),
                 encryption_key=SecretStr(secrets.token_urlsafe(32)),
                 workspace_path=workspace_path,
-                container=container,
             )
             self._save(identity)
             return identity

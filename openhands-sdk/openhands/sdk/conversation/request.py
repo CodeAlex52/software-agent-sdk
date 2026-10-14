@@ -42,7 +42,7 @@ from openhands.sdk.security.confirmation_policy import (
     ConfirmationPolicyBase,
     NeverConfirm,
 )
-from openhands.sdk.settings.model import validate_agent_settings
+from openhands.sdk.settings.model import WorktreeBase, validate_agent_settings
 from openhands.sdk.skills import Skill
 from openhands.sdk.subagent.schema import AgentDefinition
 from openhands.sdk.tool.client_tool import ClientToolSpec
@@ -105,11 +105,6 @@ class AgentLaunchAdditions(BaseModel):
     )
 
 
-WorktreeBase = Literal["default_branch", "head"]
-"""Ref a conversation worktree branches from: the repository's default branch
-(fetched from ``origin`` when there is one) or the checkout's current ``HEAD``."""
-
-
 class ConversationContainerOptions(BaseModel):
     """Resources for a conversation's container.
 
@@ -130,8 +125,8 @@ class ConversationContainerOptions(BaseModel):
         gt=0,
         description="Number of CPUs the container may use (`docker run --cpus`).",
     )
-    browser: bool | None = Field(
-        default=None,
+    browser: bool = Field(
+        default=True,
         description=(
             "False turns the browser off. True cannot turn it on for an image "
             "without one."

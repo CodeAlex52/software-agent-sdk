@@ -160,6 +160,9 @@ class SettingsSchema(BaseModel):
 
 CriticMode = Literal["finish_and_message", "all_actions"]
 SecurityAnalyzerType = Literal["llm", "none"]
+WorktreeBase = Literal["default_branch", "head"]
+"""Ref a conversation worktree branches from: the repository's default branch
+(fetched from ``origin`` when there is one) or the checkout's current ``HEAD``."""
 
 
 type CondenserKind = Literal["llm_summarizing", "no_op"]
@@ -1211,7 +1214,7 @@ class ConversationSettings(BaseModel):
             ).model_dump(),
         },
     )
-    worktree_base: Literal["default_branch", "head"] = Field(
+    worktree_base: WorktreeBase = Field(
         default="default_branch",
         description=(
             "Ref a new conversation worktree branches from: the repository's "
@@ -1369,10 +1372,10 @@ class ConversationSettings(BaseModel):
         options = {
             "memory": self.container_memory,
             "cpus": self.container_cpus,
-            # Only an opt-out is sent: True keeps the server's own default.
-            "browser": False if not self.container_browser else None,
+            "browser": self.container_browser,
         }
-        options = {key: value for key, value in options.items() if value is not None}
+        # Defaults are left out so the request keeps the server's own.
+        options = {k: v for k, v in options.items() if v not in (None, True)}
         return options or None
 
     def create_request(

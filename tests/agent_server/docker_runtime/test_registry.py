@@ -903,34 +903,21 @@ def test_container_gets_the_host_browser_setting(
     ]
 
 
-def flag_value(command: list[str], flag: str) -> str | None:
-    return command[command.index(flag) + 1] if flag in command else None
-
-
-def test_container_options_override_the_host_limits(tmp_path, monkeypatch):
-    runtime = registry(
-        tmp_path,
-        monkeypatch,
-        conversation_container_memory="2g",
-        conversation_container_cpus=1.0,
-        conversation_image_has_browser=True,
-    )
-    conversation_id = uuid4()
-    runtime.provisioning.create(
-        conversation_id,
-        container=ConversationContainerOptions(memory="6g", cpus=3, browser=False),
-    )
-    commands = capture_docker_run(runtime, monkeypatch)
-
-    runtime._build_container(conversation_id)
-
-    command, env = commands[0]
-    assert flag_value(command, "--memory") == "6g"
-    assert flag_value(command, "--cpus") == "3.0"
-    assert env["OH_ENABLE_BROWSER"] == "0"
-
-
-def test_unset_container_options_keep_the_host_limits(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    ("options", "memory", "cpus", "browser"),
+    [
+        (None, "2g", "1.5", "1"),
+        (
+            ConversationContainerOptions(memory="6g", cpus=3, browser=False),
+            "6g",
+            "3.0",
+            "0",
+        ),
+    ],
+)
+def test_container_options_override_the_host_limits(
+    tmp_path, monkeypatch, options, memory, cpus, browser
+):
     runtime = registry(
         tmp_path,
         monkeypatch,
@@ -939,14 +926,17 @@ def test_unset_container_options_keep_the_host_limits(tmp_path, monkeypatch):
         conversation_image_has_browser=True,
     )
     conversation_id = uuid4()
-    runtime.provisioning.create(
-        conversation_id, container=ConversationContainerOptions(browser=True)
-    )
+    identity = runtime.provisioning.create(conversation_id)
+    runtime.provisioning.save(identity.model_copy(update={"container": options}))
     commands = capture_docker_run(runtime, monkeypatch)
 
     runtime._build_container(conversation_id)
 
     command, env = commands[0]
-    assert flag_value(command, "--memory") == "2g"
-    assert flag_value(command, "--cpus") == "1.5"
-    assert env["OH_ENABLE_BROWSER"] == "1"
+    assert ["--memory", memory] == command[
+        command.index("--memory") : command.index("--memory") + 2
+    ]
+    assert ["--cpus", cpus] == command[
+        command.index("--cpus") : command.index("--cpus") + 2
+    ]
+    assert env["OH_ENABLE_BROWSER"] == browser

@@ -40,7 +40,6 @@ def test_selectable_mode_serves_both_runtimes(config):
 
     info = TestClient(app).get("/server_info").json()
     assert info["available_conversation_runtimes"] == ["local", "docker"]
-    assert "selectable_conversation_runtime_v1" in info["capabilities"]
 
 
 async def _dispatch(registry, scope, body=b""):

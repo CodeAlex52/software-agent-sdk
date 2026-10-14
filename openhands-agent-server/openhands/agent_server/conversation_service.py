@@ -63,7 +63,6 @@ from openhands.sdk.agent.acp_file_credentials import CODEX_AUTH_SECRET_NAME
 from openhands.sdk.agent.base import AgentBase
 from openhands.sdk.conversation.impl.local_conversation import LocalConversation
 from openhands.sdk.conversation.persistence_const import BASE_STATE
-from openhands.sdk.conversation.request import WorktreeBase
 from openhands.sdk.conversation.state import (
     ConversationExecutionStatus,
     ConversationState,
@@ -85,6 +84,7 @@ from openhands.sdk.launch import LaunchedAgent, finalize
 from openhands.sdk.llm.call_context import LLMCallContext
 from openhands.sdk.mcp.utils import MCPToolProvider
 from openhands.sdk.observability import OPERATION_METADATA_KEY, observe
+from openhands.sdk.settings.model import WorktreeBase
 from openhands.sdk.tool.client_tool import register_client_tools
 from openhands.sdk.tool.registry import get_tool_module_qualnames
 from openhands.sdk.utils.cipher import Cipher
@@ -108,7 +108,13 @@ def _build_worktree_guidance(
     worktree_root: Path,
     workspace_dir: Path,
     branch: str,
+    base: WorktreeBase,
 ) -> str:
+    base_ref = (
+        "the original workspace's current HEAD"
+        if base == "head"
+        else "the main/master branch"
+    )
     return (
         "This conversation uses a dedicated git worktree.\n"
         f"- Original workspace: {source_workspace}\n"
@@ -116,7 +122,7 @@ def _build_worktree_guidance(
         f"- Active workspace: {workspace_dir}\n"
         f"- Branch: {branch}\n"
         "Do all file and git work inside this worktree. Do your work on a new, "
-        "appropriately-named branch, based off the main/master branch, "
+        f"appropriately-named branch, based off {base_ref}, "
         "and do not switch back to the original workspace."
     )
 
@@ -190,6 +196,7 @@ class _WorktreePlan:
     worktree_root: Path
     workspace_dir: Path
     branch: str
+    base: WorktreeBase
 
     @property
     def guidance(self) -> str:
@@ -198,6 +205,7 @@ class _WorktreePlan:
             worktree_root=self.worktree_root,
             workspace_dir=self.workspace_dir,
             branch=self.branch,
+            base=self.base,
         )
 
 
@@ -205,6 +213,7 @@ def _plan_conversation_worktree(
     workspace: LocalWorkspace,
     conversation_id: UUID,
     conversation_worktree_root: Path,
+    base: WorktreeBase = "default_branch",
 ) -> _WorktreePlan | None:
     source_workspace = Path(workspace.working_dir).resolve()
     try:
@@ -225,12 +234,11 @@ def _plan_conversation_worktree(
         worktree_root=worktree_root,
         workspace_dir=worktree_root / source_workspace.relative_to(repo_root),
         branch=f"openhands/{conversation_id}",
+        base=base,
     )
 
 
-def _create_conversation_worktree(
-    plan: _WorktreePlan, base: WorktreeBase = "default_branch"
-) -> LocalWorkspace:
+def _create_conversation_worktree(plan: _WorktreePlan) -> LocalWorkspace:
     repo_root = plan.repo_root
     plan.worktree_root.parent.mkdir(parents=True, exist_ok=True)
 
@@ -256,7 +264,7 @@ def _create_conversation_worktree(
             "-b",
             plan.branch,
             str(plan.worktree_root),
-            "HEAD" if base == "head" else _get_worktree_start_point(repo_root),
+            "HEAD" if plan.base == "head" else _get_worktree_start_point(repo_root),
         ],
         repo_root,
     )
@@ -1560,7 +1568,10 @@ class ConversationService:
 
         worktree = (
             _plan_conversation_worktree(
-                request.workspace, conversation_id, self.conversation_worktree_root
+                request.workspace,
+                conversation_id,
+                self.conversation_worktree_root,
+                request.worktree_base,
             )
             if request.worktree
             else None
@@ -1581,7 +1592,7 @@ class ConversationService:
             )
         )
         workspace = (
-            _create_conversation_worktree(worktree, request.worktree_base)
+            _create_conversation_worktree(worktree)
             if worktree is not None
             else request.workspace
         )

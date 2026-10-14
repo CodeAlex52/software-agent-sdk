@@ -39,11 +39,7 @@ class HybridConversationRegistry(DockerConversationRegistry):
             return super().runtime_info(conversation_id)
         return ConversationRegistry.runtime_info(self, conversation_id)
 
-    @property
-    def serves_persisted_event_reads(self) -> bool:
-        return False
-
-    def serves_persisted_event_reads_for(self, conversation_id: UUID) -> bool:
+    def serves_persisted_event_reads(self, conversation_id: UUID) -> bool:
         return self.is_docker(conversation_id)
 
     def add_execution_routes(self, router: APIRouter) -> None:

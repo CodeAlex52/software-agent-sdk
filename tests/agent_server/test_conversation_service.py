@@ -2097,16 +2097,17 @@ class TestConversationServiceStartConversation:
             repo_dir,
         )
         plan = _plan_conversation_worktree(
-            LocalWorkspace(working_dir=repo_dir), uuid4(), tmp_path / "worktrees"
+            LocalWorkspace(working_dir=repo_dir), uuid4(), tmp_path / "worktrees", base
         )
         assert plan is not None
 
-        workspace = _create_conversation_worktree(plan, base)
+        workspace = _create_conversation_worktree(plan)
 
         def tip(ref: str, cwd: Path) -> str:
             return run_git_command(["git", "--no-pager", "rev-parse", ref], cwd)
 
         assert tip("HEAD", Path(workspace.working_dir)) == tip(expected_ref, repo_dir)
+        assert ("current HEAD" in plan.guidance) == (base == "head")
 
     def test_get_worktree_start_point_tolerates_fetch_failure(self, tmp_path):
         """If ``git fetch origin`` fails, fall back to cached refs.

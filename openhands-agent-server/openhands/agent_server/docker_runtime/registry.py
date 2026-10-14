@@ -128,7 +128,6 @@ class DockerConversationRegistry(ConversationRegistry):
             return ConversationRuntimeInfo(
                 runtime_status=ConversationRuntimeStatus.MISSING,
                 can_resume=False,
-                conversation_runtime="docker",
             )
         return ConversationRuntimeInfo(
             runtime_status=(
@@ -139,11 +138,9 @@ class DockerConversationRegistry(ConversationRegistry):
                 else ConversationRuntimeStatus.MISSING
             ),
             can_resume=True,
-            conversation_runtime="docker",
         )
 
-    @property
-    def serves_persisted_event_reads(self) -> bool:
+    def serves_persisted_event_reads(self, _conversation_id: UUID) -> bool:
         return True
 
     async def start(self) -> None:
@@ -421,8 +418,7 @@ class DockerConversationRegistry(ConversationRegistry):
                 "OH_CONVERSATION_RUNTIME": "local",
                 "OH_ENABLE_BROWSER": (
                     "1"
-                    if container_browser_enabled(self.config)
-                    and options.browser is not False
+                    if container_browser_enabled(self.config) and options.browser
                     else "0"
                 ),
                 "OH_SECRET_KEY": identity.encryption_key.get_secret_value(),

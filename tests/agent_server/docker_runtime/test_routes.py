@@ -257,14 +257,12 @@ def test_runtime_info_marks_legacy_local_conversation_non_resumable(
         "runtime_status": "missing",
         "can_resume": False,
         "runtime_error": None,
-        "conversation_runtime": "docker",
     }
     assert docker.status_code == 200
     assert docker.json() == {
         "runtime_status": "missing",
         "can_resume": True,
         "runtime_error": None,
-        "conversation_runtime": "docker",
     }
 
 
@@ -547,7 +545,7 @@ def test_a_symlinked_conversation_dir_is_rejected(tmp_path, monkeypatch):
     assert response.status_code == 422
 
 
-def test_a_start_records_the_conversation_container_options(tmp_path, monkeypatch):
+def test_a_retried_start_records_the_latest_container_options(tmp_path, monkeypatch):
     app, registry = _docker_start_app(tmp_path, monkeypatch)
     conversation_id = uuid4()
 
@@ -562,14 +560,16 @@ def test_a_start_records_the_conversation_container_options(tmp_path, monkeypatc
     monkeypatch.setattr(httpx.AsyncClient, "post", post)
 
     with TestClient(app) as client:
-        client.post(
-            "/api/conversations",
-            json={
-                "conversation_id": str(conversation_id),
-                "agent": {"kind": "Agent", "llm": {"model": "test"}},
-                "container": {"memory": "4g", "browser": False},
-            },
-        )
+        # The first start fails, so the retry may still change the options.
+        for container in ({"memory": "bad"}, {"memory": "4g", "browser": False}):
+            client.post(
+                "/api/conversations",
+                json={
+                    "conversation_id": str(conversation_id),
+                    "agent": {"kind": "Agent", "llm": {"model": "test"}},
+                    "container": container,
+                },
+            )
 
     assert registry.provisioning.load(
         conversation_id

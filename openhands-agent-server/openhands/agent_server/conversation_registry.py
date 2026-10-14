@@ -32,16 +32,11 @@ class ConversationRegistry:
         return ConversationRuntimeInfo(
             runtime_status=ConversationRuntimeStatus.AVAILABLE,
             can_resume=True,
-            conversation_runtime="local",
         )
 
-    @property
-    def serves_persisted_event_reads(self) -> bool:
+    def serves_persisted_event_reads(self, _conversation_id: UUID) -> bool:
         """Whether read-only event routes should use shared persisted storage."""
         return False
-
-    def serves_persisted_event_reads_for(self, _conversation_id: UUID) -> bool:
-        return self.serves_persisted_event_reads
 
     async def start(self) -> None:
         """Start resources owned by this registry."""
