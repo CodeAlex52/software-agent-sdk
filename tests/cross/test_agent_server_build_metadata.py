@@ -121,7 +121,7 @@ def test_python_image_uses_canonical_minimal_runtime() -> None:
     assert "FROM python:3.13.15-slim-trixie AS python-runtime" in dockerfile_text
     assert "FROM node:24.21.0-trixie-slim AS node-runtime" in dockerfile_text
     assert "ARG BASE_IMAGE=python-node-runtime" in dockerfile_text
-    assert re.search(r"ARG DEBIAN_SNAPSHOT=\d{8}T000000Z", dockerfile_text)
+    assert re.search(r"ARG DEBIAN_SNAPSHOT=\d{8}T\d{6}Z", dockerfile_text)
     assert (
         "URIs: http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}"
         in dockerfile_text
@@ -151,6 +151,48 @@ def test_python_image_uses_canonical_minimal_runtime() -> None:
     assert "nikolaik/python-nodejs" not in dockerfile_text
     assert "base_image: python-node-runtime" in workflow_text
     assert "nikolaik/python-nodejs" not in workflow_text
+
+
+def test_source_built_cli_tools_use_patched_go_modules() -> None:
+    dockerfile_text = AGENT_SERVER_DOCKERFILE.read_text(encoding="utf-8")
+    workflow_text = SERVER_WORKFLOW.read_text(encoding="utf-8")
+
+    for stage, version, revision in (
+        (
+            "github-cli-source",
+            "v2.102.0",
+            "fc4b137cdef0a6bd28fd461b7cf9c84a5812a8cd",
+        ),
+        (
+            "docker-buildx-source",
+            "v0.38.0",
+            "0dbe87f36ed472fe36b6796c3f70b4210a731fc5",
+        ),
+        (
+            "docker-compose-source",
+            "v5.6.0",
+            "42f48072bbf92ee9b0e43f9fdf2008d03546e7ca",
+        ),
+    ):
+        assert f"AS {stage}" in dockerfile_text
+        assert version in dockerfile_text
+        assert revision in dockerfile_text
+
+    assert "FROM golang:1.27.2-bookworm AS github-cli-source" in dockerfile_text
+    assert dockerfile_text.count("FROM golang:1.26.9-bookworm AS docker-") == 2
+    assert dockerfile_text.count("-require=golang.org/x/net@v0.60.0") == 3
+    assert "-require=github.com/moby/go-archive@v0.3.0" in dockerfile_text
+    assert "install -m 0755 /tmp/gh /usr/bin/gh" in dockerfile_text
+    assert (
+        "install -m 0755 /tmp/docker-buildx "
+        "/usr/libexec/docker/cli-plugins/docker-buildx" in dockerfile_text
+    )
+    assert (
+        "install -m 0755 /tmp/docker-compose "
+        "/usr/libexec/docker/cli-plugins/docker-compose" in dockerfile_text
+    )
+    assert workflow_text.count("runner: blacksmith-16vcpu-ubuntu-2404\n") == 4
+    assert workflow_text.count("runner: blacksmith-16vcpu-ubuntu-2404-arm\n") == 4
 
 
 def test_agent_server_uses_one_pinned_npm_version_for_both_node_runtimes() -> None:

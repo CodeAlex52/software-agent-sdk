@@ -287,7 +287,7 @@ jobs:
                       target: binary
                       arch: amd64
                       base_image: python-node-runtime
-                      runner: ubuntu-24.04
+                      runner: blacksmith-16vcpu-ubuntu-2404
                       platform: linux/amd64
 
                     - variant: python
@@ -297,7 +297,7 @@ jobs:
                       target: binary
                       arch: arm64
                       base_image: python-node-runtime
-                      runner: ubuntu-24.04-arm
+                      runner: blacksmith-16vcpu-ubuntu-2404-arm
                       platform: linux/arm64
 
                     # Python variant without preinstalled ACP providers
@@ -308,7 +308,7 @@ jobs:
                       target: binary
                       arch: amd64
                       base_image: python-node-runtime
-                      runner: ubuntu-24.04
+                      runner: blacksmith-16vcpu-ubuntu-2404
                       platform: linux/amd64
 
                     - variant: python-slim
@@ -318,7 +318,7 @@ jobs:
                       target: binary
                       arch: arm64
                       base_image: python-node-runtime
-                      runner: ubuntu-24.04-arm
+                      runner: blacksmith-16vcpu-ubuntu-2404-arm
                       platform: linux/arm64
 
                     # Minimal Python variant without ACP providers or capabilities
@@ -349,7 +349,7 @@ jobs:
                       acp_provider_flavor: default
                       arch: amd64
                       base_image: eclipse-temurin:17-jdk
-                      runner: ubuntu-24.04
+                      runner: blacksmith-16vcpu-ubuntu-2404
                       platform: linux/amd64
 
                     - variant: java
@@ -358,7 +358,7 @@ jobs:
                       acp_provider_flavor: default
                       arch: arm64
                       base_image: eclipse-temurin:17-jdk
-                      runner: ubuntu-24.04-arm
+                      runner: blacksmith-16vcpu-ubuntu-2404-arm
                       platform: linux/arm64
 
                     # Golang variant
@@ -368,7 +368,7 @@ jobs:
                       acp_provider_flavor: default
                       arch: amd64
                       base_image: golang:1.21-bookworm
-                      runner: ubuntu-24.04
+                      runner: blacksmith-16vcpu-ubuntu-2404
                       platform: linux/amd64
 
                     - variant: golang
@@ -377,7 +377,7 @@ jobs:
                       acp_provider_flavor: default
                       arch: arm64
                       base_image: golang:1.21-bookworm
-                      runner: ubuntu-24.04-arm
+                      runner: blacksmith-16vcpu-ubuntu-2404-arm
                       platform: linux/arm64
 
         runs-on: ${{ matrix.runner }}

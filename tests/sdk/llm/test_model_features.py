@@ -12,6 +12,7 @@ day it does (#4877).
 """
 
 import pytest
+from litellm import get_supported_openai_params
 from litellm.utils import supports_vision
 
 from openhands.sdk.llm.utils.model_features import (
@@ -66,17 +67,6 @@ def test_model_matches(name, pattern, expected):
         ("moonshot/kimi-k2.5", False),
         ("moonshot/kimi-k2-thinking", False),
         ("litellm_proxy/moonshot/kimi-k2-thinking", False),
-        # Route-dependent, and both directions are correct: OpenRouter accepts
-        # `reasoning_effort` and translates it, while Moonshot's own API does
-        # not take the parameter at all (see the two rows above). These follow
-        # LiteLLM's per-route `supported_openai_params` rather than an SDK
-        # override, so a value here tracks upstream and may move again (#4877).
-        ("openrouter/moonshotai/kimi-k2.5", True),
-        ("openrouter/moonshotai/kimi-k2-thinking", True),
-        # OpenRouter reasoning-capable models per LiteLLM metadata
-        ("openrouter/deepseek/deepseek-r1", True),
-        ("openrouter/anthropic/claude-opus-4.5", True),
-        ("openrouter/openai/gpt-5", True),
         # Eval LiteLLM proxy wrapper should not affect capability detection.
         ("litellm_proxy/gpt-5", True),
         ("litellm_proxy/claude-opus-4-5", True),
@@ -107,6 +97,41 @@ def test_model_matches(name, pattern, expected):
 def test_reasoning_effort_support(model, expected_reasoning):
     features = get_features(model)
     assert features.supports_reasoning_effort == expected_reasoning
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        "openrouter/moonshotai/kimi-k2.5",
+        "openrouter/moonshotai/kimi-k2-thinking",
+        "openrouter/deepseek/deepseek-r1",
+        "openrouter/anthropic/claude-opus-4.5",
+        "openrouter/openai/gpt-5",
+    ],
+)
+@pytest.mark.parametrize(
+    "wrapper",
+    [
+        "",
+        "litellm_proxy/",
+        "openhands/",
+        "litellm_proxy/prod/",
+        "litellm_proxy/dev/",
+        "litellm_proxy/staging/",
+        "litellm_proxy/test/",
+    ],
+)
+def test_openrouter_reasoning_effort_delegates_to_litellm(model, wrapper):
+    # Provider routing is LiteLLM-owned; SDK wrappers must preserve its answer.
+    params = frozenset(
+        get_supported_openai_params(model=model, custom_llm_provider=None) or ()
+    )
+    routed_model = f" {wrapper}{model} ".upper()
+
+    assert _normalized_supported_openai_params(routed_model) == params
+    assert get_features(routed_model).supports_reasoning_effort is (
+        "reasoning_effort" in params
+    )
 
 
 @pytest.mark.parametrize(
@@ -430,12 +455,19 @@ def test_litellm_vision_support_is_exposed_as_model_feature(model: str):
     assert get_features(model).supports_vision is True
 
 
-def test_reasoning_effort_overrides_are_not_redundant():
-    for pattern, litellm_model in REASONING_EFFORT_MODEL_OVERRIDES.items():
-        params = _normalized_supported_openai_params(litellm_model)
-        assert "reasoning_effort" not in params, (
-            f"Remove {pattern!r}: LiteLLM now supports {litellm_model!r}"
-        )
+@pytest.mark.parametrize(
+    "pattern,litellm_model", REASONING_EFFORT_MODEL_OVERRIDES.items()
+)
+def test_reasoning_effort_overrides_preserve_support(pattern, litellm_model):
+    # The security hotfix retains production overrides even after upstream catches
+    # up. Exercise their fallback effect on a route absent from LiteLLM metadata.
+    unregistered_route = f"sdk-test-only/{pattern}"
+    params = get_supported_openai_params(
+        model=unregistered_route, custom_llm_provider=None
+    )
+    assert "reasoning_effort" not in (params or ())
+    assert get_features(unregistered_route).supports_reasoning_effort is True
+    assert get_features(litellm_model).supports_reasoning_effort is True
 
 
 def test_vision_overrides_are_not_redundant():
