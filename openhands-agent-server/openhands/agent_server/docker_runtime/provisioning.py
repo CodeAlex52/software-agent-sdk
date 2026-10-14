@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, SecretStr, field_serializer, field_v
 
 from openhands.agent_server.config import Config
 from openhands.agent_server.persistence.store import _get_persistence_dir
+from openhands.sdk.conversation.request import ConversationContainerOptions
 from openhands.sdk.profiles.agent_profile import LaunchedAgentProfile
 from openhands.sdk.utils.cipher import Cipher
 from openhands.sdk.utils.pydantic_secrets import serialize_secret, validate_secret
@@ -27,6 +28,7 @@ class RuntimeIdentity(BaseModel):
     encryption_key: SecretStr
     workspace_path: Path
     launched_agent_profile: LaunchedAgentProfile | None = None
+    container: ConversationContainerOptions | None = None
 
     @field_serializer("api_key", "encryption_key")
     def serialize_key(self, value, info):
@@ -114,7 +116,10 @@ class RuntimeProvisioningStore:
         return identity
 
     def create(
-        self, conversation_id: UUID, workspace_path: Path | None = None
+        self,
+        conversation_id: UUID,
+        workspace_path: Path | None = None,
+        container: ConversationContainerOptions | None = None,
     ) -> RuntimeIdentity:
         path = self.manifest_path(conversation_id)
         with FileLock(str(path) + ".lock"):
@@ -159,6 +164,7 @@ class RuntimeProvisioningStore:
                 api_key=SecretStr(secrets.token_urlsafe(32)),
                 encryption_key=SecretStr(secrets.token_urlsafe(32)),
                 workspace_path=workspace_path,
+                container=container,
             )
             self._save(identity)
             return identity

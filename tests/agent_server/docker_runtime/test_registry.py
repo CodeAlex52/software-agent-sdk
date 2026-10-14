@@ -22,6 +22,7 @@ from openhands.agent_server.docker_runtime.registry import (
 from openhands.agent_server.models import StartConversationRequest
 from openhands.agent_server.storage import trash as trash_module
 from openhands.sdk import LLM, Agent, Message, TextContent
+from openhands.sdk.conversation.request import ConversationContainerOptions
 from openhands.sdk.conversation.state import ConversationExecutionStatus
 from openhands.sdk.security.confirmation_policy import NeverConfirm
 from openhands.sdk.workspace import LocalWorkspace
@@ -900,3 +901,52 @@ def test_container_gets_the_host_browser_setting(
     assert ["-e", "OH_ENABLE_BROWSER"] == command[
         command.index("OH_ENABLE_BROWSER") - 1 : command.index("OH_ENABLE_BROWSER") + 1
     ]
+
+
+def flag_value(command: list[str], flag: str) -> str | None:
+    return command[command.index(flag) + 1] if flag in command else None
+
+
+def test_container_options_override_the_host_limits(tmp_path, monkeypatch):
+    runtime = registry(
+        tmp_path,
+        monkeypatch,
+        conversation_container_memory="2g",
+        conversation_container_cpus=1.0,
+        conversation_image_has_browser=True,
+    )
+    conversation_id = uuid4()
+    runtime.provisioning.create(
+        conversation_id,
+        container=ConversationContainerOptions(memory="6g", cpus=3, browser=False),
+    )
+    commands = capture_docker_run(runtime, monkeypatch)
+
+    runtime._build_container(conversation_id)
+
+    command, env = commands[0]
+    assert flag_value(command, "--memory") == "6g"
+    assert flag_value(command, "--cpus") == "3.0"
+    assert env["OH_ENABLE_BROWSER"] == "0"
+
+
+def test_unset_container_options_keep_the_host_limits(tmp_path, monkeypatch):
+    runtime = registry(
+        tmp_path,
+        monkeypatch,
+        conversation_container_memory="2g",
+        conversation_container_cpus=1.5,
+        conversation_image_has_browser=True,
+    )
+    conversation_id = uuid4()
+    runtime.provisioning.create(
+        conversation_id, container=ConversationContainerOptions(browser=True)
+    )
+    commands = capture_docker_run(runtime, monkeypatch)
+
+    runtime._build_container(conversation_id)
+
+    command, env = commands[0]
+    assert flag_value(command, "--memory") == "2g"
+    assert flag_value(command, "--cpus") == "1.5"
+    assert env["OH_ENABLE_BROWSER"] == "1"

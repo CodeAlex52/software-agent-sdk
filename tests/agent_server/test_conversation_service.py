@@ -23,7 +23,9 @@ from openhands.agent_server.conversation_service import (
     ConversationService,
     _compose_conversation_info,
     _ConversationRecord,
+    _create_conversation_worktree,
     _get_worktree_start_point,
+    _plan_conversation_worktree,
 )
 from openhands.agent_server.event_service import EventService
 from openhands.agent_server.models import (
@@ -2072,6 +2074,39 @@ class TestConversationServiceStartConversation:
         run_git_command(["git", "checkout", "--detach"], repo_dir)
 
         assert _get_worktree_start_point(repo_dir) == "master"
+
+    @pytest.mark.parametrize(
+        ("base", "expected_ref"), [("default_branch", "main"), ("head", "feature/x")]
+    )
+    def test_worktree_base_picks_the_branch_point(self, tmp_path, base, expected_ref):
+        repo_dir = tmp_path / "repo"
+        _init_git_repo(repo_dir)
+        run_git_command(["git", "checkout", "-b", "feature/x"], repo_dir)
+        run_git_command(
+            [
+                "git",
+                "-c",
+                "user.name=OpenHands Test",
+                "-c",
+                "user.email=openhands@example.com",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "feature",
+            ],
+            repo_dir,
+        )
+        plan = _plan_conversation_worktree(
+            LocalWorkspace(working_dir=repo_dir), uuid4(), tmp_path / "worktrees"
+        )
+        assert plan is not None
+
+        workspace = _create_conversation_worktree(plan, base)
+
+        def tip(ref: str, cwd: Path) -> str:
+            return run_git_command(["git", "--no-pager", "rev-parse", ref], cwd)
+
+        assert tip("HEAD", Path(workspace.working_dir)) == tip(expected_ref, repo_dir)
 
     def test_get_worktree_start_point_tolerates_fetch_failure(self, tmp_path):
         """If ``git fetch origin`` fails, fall back to cached refs.
