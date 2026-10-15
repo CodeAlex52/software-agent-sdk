@@ -34,13 +34,18 @@ from openhands.agent_server.launch import (
 )
 from openhands.agent_server.local_storage import (
     conversation_worktree_dir,
+    describe_conversation_worktree,
+    directory_size,
+    recreate_worktree,
     remove_conversation_worktree,
 )
 from openhands.agent_server.models import (
     ConversationInfo,
     ConversationPage,
     ConversationSortOrder,
+    ConversationWorktree,
     LaunchedAgentProfile,
+    RemovedWorktree,
     StartConversationRequest,
     StoredConversation,
     UpdateConversationRequest,
@@ -88,6 +93,7 @@ from openhands.sdk.observability import OPERATION_METADATA_KEY, observe
 from openhands.sdk.tool.client_tool import register_client_tools
 from openhands.sdk.tool.registry import get_tool_module_qualnames
 from openhands.sdk.utils.cipher import Cipher
+from openhands.sdk.utils.files import atomic_write_text
 from openhands.sdk.workspace import LocalWorkspace
 
 
@@ -295,6 +301,10 @@ logger = logging.getLogger(__name__)
 class InvalidParentConversation(ValueError):
     """``parent_conversation_id`` is unknown, self-referential, or in
     a different workspace."""
+
+
+class WorktreeNotRemovable(ValueError):
+    """The worktree holds changes, or one of its conversations is open."""
 
 
 def _same_workspace(a: LocalWorkspace, b: LocalWorkspace) -> bool:
@@ -983,6 +993,13 @@ class ConversationService:
             )
 
     def _prepare_persisted_runtime(self, stored: StoredConversation) -> None:
+        removed = stored.removed_worktree
+        if removed is not None and not Path(removed.path).exists():
+            # Its worktree was cleaned up; the branch kept every commit.
+            if not recreate_worktree(removed.repository, removed.path, removed.branch):
+                logger.warning(
+                    "Could not re-create worktree %s for %s", removed.path, stored.id
+                )
         if stored.tool_module_qualnames:
             for tool_name, module_qualname in stored.tool_module_qualnames.items():
                 try:
@@ -1747,6 +1764,94 @@ class ConversationService:
     def _worktree_dir(self, stored: StoredConversation) -> Path | None:
         return conversation_worktree_dir(
             self.conversation_worktree_root, stored.workspace.working_dir
+        )
+
+    def _worktree_users(self, directory: Path) -> list[_ConversationRecord]:
+        return [
+            record
+            for record in self._conversation_records.values()
+            if self._worktree_dir(record.stored) == directory
+        ]
+
+    def _is_loaded(self, conversation_id: UUID) -> bool:
+        event_service = (self._event_services or {}).get(conversation_id)
+        return event_service is not None and event_service.is_open()
+
+    async def list_worktrees(self) -> list[ConversationWorktree]:
+        """Every directory under the worktree root, for the cleanup list."""
+        root = self.conversation_worktree_root
+        if not root.is_dir():
+            return []
+        worktrees = []
+        for directory in sorted(await asyncio.to_thread(lambda: list(root.iterdir()))):
+            if directory.is_symlink() or not directory.is_dir():
+                continue
+            status, size = await asyncio.to_thread(
+                lambda d=directory: (
+                    describe_conversation_worktree(d),
+                    directory_size(d),
+                )
+            )
+            users = self._worktree_users(directory)
+            worktrees.append(
+                ConversationWorktree(
+                    name=directory.name,
+                    path=str(status.path if status else directory),
+                    repository=str(status.repository)
+                    if status and status.repository
+                    else None,
+                    branch=status.branch if status else None,
+                    conversation_ids=[record.stored.id for record in users],
+                    last_activity=max(
+                        (record.stored.updated_at for record in users), default=None
+                    ),
+                    size_bytes=size,
+                    has_changes=status.has_changes if status else False,
+                    in_use=any(self._is_loaded(record.stored.id) for record in users),
+                )
+            )
+        return worktrees
+
+    async def remove_worktree(self, name: str) -> None:
+        """Remove a clean worktree nobody has open; its branch stays.
+
+        Its conversations keep working: reopening one re-creates the worktree
+        from that branch (``removed_worktree``).
+        """
+        root = self.conversation_worktree_root
+        directory = root / name
+        # Only a real directory directly under the root: never "..", a nested
+        # path or a symlink out of it.
+        if (
+            directory.is_symlink()
+            or not directory.is_dir()
+            or directory.resolve().parent != root.resolve()
+        ):
+            raise KeyError(name)
+        users = self._worktree_users(directory)
+        if any(self._is_loaded(record.stored.id) for record in users):
+            raise WorktreeNotRemovable("A conversation using it is open")
+        status = await asyncio.to_thread(describe_conversation_worktree, directory)
+        if status is not None and status.has_changes:
+            raise WorktreeNotRemovable("It has uncommitted or untracked changes")
+        if status is not None and status.repository and status.branch:
+            removed = RemovedWorktree(
+                repository=str(status.repository),
+                path=str(status.path),
+                branch=status.branch,
+            )
+            for record in users:
+                record.stored = record.stored.model_copy(
+                    update={"removed_worktree": removed}
+                )
+                record.cached_info = None
+                await asyncio.to_thread(self._save_meta, record.stored)
+        await asyncio.to_thread(remove_conversation_worktree, directory)
+
+    def _save_meta(self, stored: StoredConversation) -> None:
+        atomic_write_text(
+            self.conversations_dir / stored.id.hex / "meta.json",
+            stored.model_dump_json(context={"cipher": self._cipher_for(stored.id)}),
         )
 
     async def delete_conversation(self, conversation_id: UUID) -> bool:

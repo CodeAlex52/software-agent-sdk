@@ -1,6 +1,9 @@
 """Storage of host-local conversations: their git worktrees."""
 
+import os
 import subprocess
+from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 
 from openhands.agent_server.utils import safe_rmtree
@@ -35,6 +38,46 @@ def remove_conversation_worktree(conversation_dir: Path) -> None:
     # Drops git's record of the missing worktree; the branch is untouched.
     for repo in repos:
         _git(repo, "worktree", "prune")
+
+
+@dataclass(frozen=True)
+class WorktreeStatus:
+    path: Path
+    repository: Path | None
+    branch: str | None
+    # True too when git cannot tell: such a worktree is never removed.
+    has_changes: bool
+
+
+def describe_conversation_worktree(conversation_dir: Path) -> WorktreeStatus | None:
+    """The worktree in a conversation dir, or None when it holds none."""
+    worktrees = _worktrees(conversation_dir)
+    if not worktrees:
+        return None
+    worktree = worktrees[0]
+    common = _repo(worktree)
+    status = _git(worktree, "status", "--porcelain")
+    return WorktreeStatus(
+        path=worktree,
+        repository=common.parent if common and common.name == ".git" else common,
+        branch=_git(worktree, "rev-parse", "--abbrev-ref", "HEAD"),
+        has_changes=status is None or status != "",
+    )
+
+
+def directory_size(directory: Path) -> int:
+    """Bytes of the files under ``directory``, not following symlinks."""
+    total = 0
+    for parent, _, files in os.walk(directory):
+        for name in files:
+            with suppress(OSError):
+                total += (Path(parent) / name).lstat().st_size
+    return total
+
+
+def recreate_worktree(repository: str, path: str, branch: str) -> bool:
+    """Check ``branch`` out again at ``path``, where its worktree was removed."""
+    return _git(Path(repository), "worktree", "add", path, branch) is not None
 
 
 def _worktrees(conversation_dir: Path) -> list[Path]:

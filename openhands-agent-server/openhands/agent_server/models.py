@@ -99,6 +99,38 @@ class EventSortOrder(StrEnum):
     TIMESTAMP_DESC = "TIMESTAMP_DESC"
 
 
+class RemovedWorktree(BaseModel):
+    """A conversation's worktree that was removed to free space. Reopening the
+    conversation re-creates it from its branch, which removal keeps."""
+
+    repository: str
+    path: str
+    branch: str
+
+
+class ConversationWorktree(BaseModel):
+    """A directory under the server's worktree root, as the cleanup list shows."""
+
+    name: str = Field(description="Directory name under the worktree root.")
+    path: str = Field(description="The worktree's checkout.")
+    repository: str | None = Field(default=None, description="Its main repository.")
+    branch: str | None = Field(default=None, description="Its checked-out branch.")
+    conversation_ids: list[OpenHandsUUID] = Field(
+        default_factory=list,
+        description="Conversations working in it; empty for a leftover.",
+    )
+    last_activity: datetime | None = Field(
+        default=None, description="Latest update of those conversations."
+    )
+    size_bytes: int = 0
+    has_changes: bool = Field(
+        default=False, description="Uncommitted or untracked changes it holds."
+    )
+    in_use: bool = Field(
+        default=False, description="One of its conversations is loaded right now."
+    )
+
+
 class StoredConversation(ConversationConfig):
     """Stored details about a conversation.
 
@@ -142,6 +174,10 @@ class StoredConversation(ConversationConfig):
             "``None`` for conversations started directly with `agent` or "
             "`agent_settings`."
         ),
+    )
+    removed_worktree: RemovedWorktree | None = Field(
+        default=None,
+        description="Set when this conversation's worktree was removed.",
     )
 
 
