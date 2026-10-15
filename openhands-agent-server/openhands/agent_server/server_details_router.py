@@ -8,6 +8,7 @@ from typing import Literal
 from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel, Field
 
+from openhands.sdk.settings.model import ConversationRuntime
 from openhands.sdk.tool.registry import list_usable_tools
 from openhands.tools.terminal.timeout_policy import (
     get_max_foreground_timeout_seconds,
@@ -60,7 +61,7 @@ class ServerInfo(BaseModel):
         default_factory=lambda: get_runtime_idle_timeout_seconds()
     )
     conversation_runtime: Literal["local", "docker"] = "local"
-    available_conversation_runtimes: list[Literal["local", "docker"]] = Field(
+    available_conversation_runtimes: list[ConversationRuntime] = Field(
         default_factory=list,
         description=(
             "Runtimes a start request may select with `conversation_runtime`. "

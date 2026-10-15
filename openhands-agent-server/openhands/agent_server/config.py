@@ -388,7 +388,8 @@ class Config(BaseModel):
         description=(
             "Serve both the local and the docker runtime and let each start "
             "request pick one with `conversation_runtime`; requests that leave "
-            "it unset use `conversation_runtime`. Requires a Docker daemon and "
+            "it unset use this server's `conversation_runtime`. Requires a "
+            "Docker daemon and "
             "`OH_SECRET_KEY`."
         ),
     )

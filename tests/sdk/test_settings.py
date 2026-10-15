@@ -40,7 +40,6 @@ from openhands.sdk.settings import (
 )
 from openhands.sdk.settings.model import (
     ACPServerKind,
-    DefaultRuntime,
     _agent_settings_discriminator,
     _condenser_settings_discriminator,
     _migrate_agent_settings_payload,
@@ -252,64 +251,25 @@ def test_conversation_settings_export_schema_groups_sections() -> None:
     assert {f.prominence for f in runtime_fields.values()} == {SettingProminence.MAJOR}
 
 
-@pytest.mark.parametrize(
-    ("settings", "container"),
-    [
-        (ConversationSettings(), None),
-        (
-            ConversationSettings(
-                container_memory="4g", container_cpus=2, container_browser=False
-            ),
-            {"memory": "4g", "cpus": 2.0, "browser": False},
-        ),
-        # 1.0 == True in Python: a one-CPU limit must not be mistaken for a
-        # default and dropped.
-        (ConversationSettings(container_cpus=1), {"cpus": 1.0, "browser": True}),
-    ],
-)
-def test_conversation_settings_runtime_fields_reach_the_start_request(
-    settings: ConversationSettings, container: dict[str, Any] | None
-) -> None:
+def test_runtime_settings_stay_out_of_create_request() -> None:
+    # They are Canvas launcher defaults; create_request() callers such as the
+    # OpenAI gateway start in-process and must keep running locally.
+    settings = ConversationSettings(
+        default_runtime="worktree",
+        worktree_base="head",
+        container_memory="4g",
+    )
+
     request = settings.create_request(
         StartConversationRequest,
         agent=Agent(llm=LLM(model="test-model", usage_id="test-llm"), tools=[]),
         workspace=LocalWorkspace(working_dir="/tmp"),
     )
 
-    assert (
-        request.container.model_dump(exclude_none=True) if request.container else None
-    ) == container
-
-
-@pytest.mark.parametrize(
-    ("settings", "worktree_options"),
-    [
-        (ConversationSettings(), None),
-        (ConversationSettings(worktree_base="head"), {"base": "head"}),
-        (
-            ConversationSettings(
-                worktree_base="ref",
-                worktree_base_ref="origin/release",
-                worktree_branch_prefix="me/",
-            ),
-            {"base": "ref", "ref": "origin/release", "branch_prefix": "me/"},
-        ),
-    ],
-)
-def test_worktree_settings_reach_the_start_request(
-    settings: ConversationSettings, worktree_options: dict[str, Any] | None
-) -> None:
-    request = settings.create_request(
-        StartConversationRequest,
-        agent=Agent(llm=LLM(model="test-model", usage_id="test-llm"), tools=[]),
-        workspace=LocalWorkspace(working_dir="/tmp"),
-    )
-
-    assert (
-        request.worktree_options.model_dump(exclude_defaults=True)
-        if request.worktree_options
-        else None
-    ) == worktree_options
+    assert request.worktree is False
+    assert request.conversation_runtime is None
+    assert request.worktree_options is None
+    assert request.container is None
 
 
 @pytest.mark.parametrize(
@@ -348,30 +308,6 @@ def test_container_limits_are_checked_when_saved(
     else:
         with pytest.raises(ValidationError):
             ConversationSettings.model_validate({field: value})
-
-
-@pytest.mark.parametrize(
-    ("default_runtime", "conversation_runtime", "worktree"),
-    [
-        # Local sends no runtime: a Docker-only server would reject "local".
-        ("local", None, False),
-        ("worktree", None, True),
-        ("docker", "docker", False),
-    ],
-)
-def test_the_default_runtime_shapes_the_start_request(
-    default_runtime: DefaultRuntime,
-    conversation_runtime: str | None,
-    worktree: bool,
-) -> None:
-    request = ConversationSettings(default_runtime=default_runtime).create_request(
-        StartConversationRequest,
-        agent=Agent(llm=LLM(model="test-model", usage_id="test-llm"), tools=[]),
-        workspace=LocalWorkspace(working_dir="/tmp"),
-    )
-
-    assert request.conversation_runtime == conversation_runtime
-    assert request.worktree is worktree
 
 
 def test_export_settings_schema_remains_backward_compatible():

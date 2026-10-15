@@ -560,9 +560,10 @@ def test_a_retried_start_records_the_latest_container_options(tmp_path, monkeypa
     monkeypatch.setattr(httpx.AsyncClient, "post", post)
 
     with TestClient(app) as client:
-        # The first start fails, so the retry may still change the options.
-        for container in ({"memory": "bad"}, {"memory": "4g", "browser": False}):
-            client.post(
+        # The first start is saved but fails in the container, so the retry
+        # may still change the options.
+        for container in ({"memory": "2g"}, {"memory": "4g", "browser": False}):
+            response = client.post(
                 "/api/conversations",
                 json={
                     "conversation_id": str(conversation_id),
@@ -570,6 +571,7 @@ def test_a_retried_start_records_the_latest_container_options(tmp_path, monkeypa
                     "container": container,
                 },
             )
+            assert response.status_code == 500
 
     assert registry.provisioning.load(
         conversation_id

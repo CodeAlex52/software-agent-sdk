@@ -218,7 +218,7 @@ def _plan_conversation_worktree(
     workspace: LocalWorkspace,
     conversation_id: UUID,
     conversation_worktree_root: Path,
-    options: ConversationWorktreeOptions | None = None,
+    options: ConversationWorktreeOptions | None,
 ) -> _WorktreePlan | None:
     options = options or ConversationWorktreeOptions()
     source_workspace = Path(workspace.working_dir).resolve()

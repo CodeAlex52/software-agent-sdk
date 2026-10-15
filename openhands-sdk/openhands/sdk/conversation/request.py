@@ -198,10 +198,6 @@ class ConversationConfig(BaseModel):
         default=None,
         description="How the worktree is created (`worktree=True`); unset: defaults.",
     )
-    container: ConversationContainerOptions | None = Field(
-        default=None,
-        description="Resources for the conversation's container (Docker runtime).",
-    )
     conversation_id: UUID | None = Field(
         default=None,
         description=(
@@ -421,6 +417,10 @@ class StartConversationRequest(ConversationConfig):
             "configured `conversation_runtime`; another value is only accepted "
             "when the server lists it in `available_conversation_runtimes`."
         ),
+    )
+    container: ConversationContainerOptions | None = Field(
+        default=None,
+        description="Resources for the conversation's container (Docker runtime).",
     )
 
     @model_validator(mode="before")

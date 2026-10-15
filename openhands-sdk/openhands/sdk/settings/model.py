@@ -1439,35 +1439,7 @@ class ConversationSettings(BaseModel):
         payload.setdefault("confirmation_policy", self._build_confirmation_policy())
         payload.setdefault("security_analyzer", self._build_security_analyzer())
         payload.setdefault("max_iterations", self.max_iterations)
-        # "local" sends nothing, so a server's own default (and a Docker-only
-        # server, which rejects "local") is left alone.
-        if self.default_runtime == "docker":
-            payload.setdefault("conversation_runtime", "docker")
-        elif self.default_runtime == "worktree":
-            payload.setdefault("worktree", True)
-        payload.setdefault("worktree_options", self._worktree_options())
-        payload.setdefault("container", self._container_options())
         return payload
-
-    def _worktree_options(self) -> dict[str, Any] | None:
-        options: dict[str, Any] = {}
-        if self.worktree_base != "default_branch":
-            options["base"] = self.worktree_base
-        if self.worktree_base == "ref":
-            options["ref"] = self.worktree_base_ref
-        if self.worktree_branch_prefix != DEFAULT_WORKTREE_BRANCH_PREFIX:
-            options["branch_prefix"] = self.worktree_branch_prefix
-        return options or None
-
-    def _container_options(self) -> dict[str, Any] | None:
-        options = {
-            "memory": self.container_memory,
-            "cpus": self.container_cpus,
-            # Only an opt-out is sent: True keeps the server's own default.
-            "browser": None if self.container_browser else False,
-        }
-        options = {k: v for k, v in options.items() if v is not None}
-        return options or None
 
     def create_request(
         self,
