@@ -28,17 +28,11 @@ describe('WorktreesClient', () => {
           headers: { 'content-type': 'application/json' },
         })
       )
-      // The server's real response: JSON, so the client parses it.
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ removed: true }), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        })
-      ) as typeof fetch;
+      .mockResolvedValueOnce(new Response(null, { status: 204 })) as typeof fetch;
     const client = new WorktreesClient({ host: 'http://example.com/' });
 
     await expect(client.listWorktrees()).resolves.toEqual([worktree]);
-    await expect(client.removeWorktree('c0ffee')).resolves.toEqual({ removed: true });
+    await client.removeWorktree('c0ffee');
 
     expect(global.fetch).toHaveBeenNthCalledWith(
       1,

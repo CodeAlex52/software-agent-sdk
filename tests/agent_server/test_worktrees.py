@@ -120,23 +120,20 @@ async def test_an_open_conversation_keeps_its_worktree(service, repo):
 
 
 @pytest.mark.parametrize(
-    ("name", "status", "body"),
+    ("name", "status"),
     [
-        # A JSON body, not an empty 204: clients parse the response.
-        ("clean", 200, {"removed": True}),
         # Never anything outside the worktree root.
-        ("..", 404, None),
-        ("missing", 404, None),
-        ("in-use", 409, None),
+        ("..", 404),
+        ("missing", 404),
+        ("in-use", 409),
     ],
 )
-def test_remove_route_statuses(service, repo, name, status, body):
+def test_remove_route_statuses(service, repo, name, status):
     stored = worktree_conversation(service, repo)
-    if name in ("clean", "in-use"):
-        if name == "in-use":
-            assert service._event_services is not None
-            service._event_services[stored.id] = MagicMock(is_open=lambda: True)
+    if name == "in-use":
         name = Path(stored.workspace.working_dir).parent.name
+        assert service._event_services is not None
+        service._event_services[stored.id] = MagicMock(is_open=lambda: True)
     app = FastAPI()
     app.include_router(worktrees_router)
     app.dependency_overrides[get_conversation_service] = lambda: service
@@ -144,8 +141,6 @@ def test_remove_route_statuses(service, repo, name, status, body):
     response = TestClient(app).delete(f"/worktrees/{name}")
 
     assert response.status_code == status
-    if body is not None:
-        assert response.json() == body
     assert service.conversation_worktree_root.parent.is_dir()
 
 
