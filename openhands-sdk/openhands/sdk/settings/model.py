@@ -163,6 +163,8 @@ SecurityAnalyzerType = Literal["llm", "none"]
 WorktreeBase = Literal["default_branch", "head"]
 """Ref a conversation worktree branches from: the repository's default branch
 (fetched from ``origin`` when there is one) or the checkout's current ``HEAD``."""
+ConversationRuntime = Literal["local", "docker"]
+"""Where a conversation runs: on the agent-server's host or in its own container."""
 
 
 type CondenserKind = Literal["llm_summarizing", "no_op"]
@@ -1214,6 +1216,21 @@ class ConversationSettings(BaseModel):
             ).model_dump(),
         },
     )
+    conversation_runtime: ConversationRuntime | None = Field(
+        default=None,
+        description=(
+            "Where new conversations run: on the host, or each in its own Docker "
+            "container. Unset uses the server's default; Docker needs a server "
+            "that offers it."
+        ),
+        json_schema_extra={
+            SETTINGS_METADATA_KEY: SettingsFieldMetadata(
+                label="Default runtime",
+                prominence=SettingProminence.MAJOR,
+            ).model_dump(),
+            SETTINGS_SECTION_METADATA_KEY: _RUNTIME_SECTION_METADATA,
+        },
+    )
     worktree_base: WorktreeBase = Field(
         default="default_branch",
         description=(
@@ -1364,6 +1381,8 @@ class ConversationSettings(BaseModel):
         payload.setdefault("confirmation_policy", self._build_confirmation_policy())
         payload.setdefault("security_analyzer", self._build_security_analyzer())
         payload.setdefault("max_iterations", self.max_iterations)
+        if self.conversation_runtime is not None:
+            payload.setdefault("conversation_runtime", self.conversation_runtime)
         payload.setdefault("worktree_base", self.worktree_base)
         payload.setdefault("container", self._container_options())
         return payload

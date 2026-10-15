@@ -260,6 +260,7 @@ def test_get_settings_migrates_legacy_openhands_settings_and_resaves_current(
         "max_iterations": 42,
         "confirmation_mode": True,
         "security_analyzer": "llm",
+        "conversation_runtime": None,
         "worktree_base": "default_branch",
         "container_memory": None,
         "container_cpus": None,

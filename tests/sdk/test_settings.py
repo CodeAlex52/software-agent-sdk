@@ -40,6 +40,7 @@ from openhands.sdk.settings import (
 )
 from openhands.sdk.settings.model import (
     ACPServerKind,
+    ConversationRuntime,
     _agent_settings_discriminator,
     _condenser_settings_discriminator,
     _migrate_agent_settings_payload,
@@ -225,6 +226,7 @@ def test_conversation_settings_export_schema_groups_sections() -> None:
 
     runtime_fields = {f.key: f for f in sections["runtime"].fields}
     assert set(runtime_fields) == {
+        "conversation_runtime",
         "worktree_base",
         "container_memory",
         "container_cpus",
@@ -235,7 +237,11 @@ def test_conversation_settings_export_schema_groups_sections() -> None:
         "head",
     ]
     assert runtime_fields["container_browser"].default is True
-    # One tier: the page has four fields, none worth hiding behind "All".
+    assert [c.value for c in runtime_fields["conversation_runtime"].choices] == [
+        "local",
+        "docker",
+    ]
+    # One tier: the page has a few fields, none worth hiding behind "All".
     assert {f.prominence for f in runtime_fields.values()} == {SettingProminence.MAJOR}
 
 
@@ -267,6 +273,20 @@ def test_conversation_settings_runtime_fields_reach_the_start_request(
     assert (
         request.container.model_dump(exclude_none=True) if request.container else None
     ) == container
+
+
+@pytest.mark.parametrize("runtime", [None, "local", "docker"])
+def test_the_default_runtime_reaches_the_start_request_only_when_set(
+    runtime: ConversationRuntime | None,
+) -> None:
+    request = ConversationSettings(conversation_runtime=runtime).create_request(
+        StartConversationRequest,
+        agent=Agent(llm=LLM(model="test-model", usage_id="test-llm"), tools=[]),
+        workspace=LocalWorkspace(working_dir="/tmp"),
+    )
+
+    # Unset leaves the choice to the server's configured default.
+    assert request.conversation_runtime == runtime
 
 
 def test_export_settings_schema_remains_backward_compatible():

@@ -8,7 +8,7 @@ agent-server.
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal, cast
+from typing import Annotated, Any, cast
 from uuid import UUID
 
 from pydantic import (
@@ -42,7 +42,11 @@ from openhands.sdk.security.confirmation_policy import (
     ConfirmationPolicyBase,
     NeverConfirm,
 )
-from openhands.sdk.settings.model import WorktreeBase, validate_agent_settings
+from openhands.sdk.settings.model import (
+    ConversationRuntime,
+    WorktreeBase,
+    validate_agent_settings,
+)
 from openhands.sdk.skills import Skill
 from openhands.sdk.subagent.schema import AgentDefinition
 from openhands.sdk.tool.client_tool import ClientToolSpec
@@ -378,7 +382,7 @@ class StartConversationRequest(ConversationConfig):
         ),
     )
     agent: AgentBase = Field(default=cast(AgentBase, None))
-    conversation_runtime: Literal["local", "docker"] | None = Field(
+    conversation_runtime: ConversationRuntime | None = Field(
         default=None,
         description=(
             "Runtime that executes this conversation. Unset uses the server's "
