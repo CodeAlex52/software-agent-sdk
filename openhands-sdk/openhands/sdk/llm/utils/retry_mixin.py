@@ -1,5 +1,7 @@
-from collections.abc import Callable, Iterable
-from typing import Any, cast
+import time
+from collections.abc import Callable, Iterable, Mapping
+from email.utils import parsedate_to_datetime
+from typing import Any, Final, Protocol, cast, runtime_checkable
 
 from tenacity import (
     RetryCallState,
@@ -18,6 +20,68 @@ logger = get_logger(__name__)
 
 # Helpful alias for listener signature: (attempt_number, max_retries) -> None
 RetryListener = Callable[[int, int, BaseException | None], None]
+
+# (header, seconds per unit). The LiteLLM proxy forwards a provider's hint only
+# under its llm_provider- prefix.
+_RETRY_AFTER_HEADERS: Final = (
+    ("retry-after-ms", 0.001),
+    ("retry-after", 1.0),
+    ("llm_provider-retry-after-ms", 0.001),
+    ("llm_provider-retry-after", 1.0),
+)
+# Longer hints (e.g. a daily quota reset) fall back to the normal backoff rather
+# than stalling the conversation; LiteLLM's router applies the same bound.
+_MAX_RETRY_AFTER_SECONDS: Final = 60.0
+
+
+@runtime_checkable
+class _WithResponseHeaders(Protocol):
+    @property
+    def litellm_response_headers(self) -> object: ...
+
+
+def _parse_retry_after(value: str, seconds_per_unit: float) -> float | None:
+    try:
+        return float(value) * seconds_per_unit
+    except ValueError:
+        pass
+    if seconds_per_unit != 1.0:
+        return None
+    try:
+        return parsedate_to_datetime(value).timestamp() - time.time()
+    except (TypeError, ValueError):
+        return None
+
+
+def _retry_after_seconds(exc: BaseException) -> float | None:
+    """Return the provider's requested delay, if the error carries one."""
+    if not isinstance(exc, _WithResponseHeaders):
+        return None
+    headers = exc.litellm_response_headers
+    if not isinstance(headers, Mapping):
+        return None
+    lowered = {str(name).lower(): str(value) for name, value in headers.items()}
+    for name, seconds_per_unit in _RETRY_AFTER_HEADERS:
+        value = lowered.get(name)
+        if value is None:
+            continue
+        seconds = _parse_retry_after(value, seconds_per_unit)
+        if seconds is not None and 0 < seconds <= _MAX_RETRY_AFTER_SECONDS:
+            return seconds
+    return None
+
+
+def _wait_at_least_retry_after(
+    backoff: Callable[[RetryCallState], float],
+) -> Callable[[RetryCallState], float]:
+    def wait(retry_state: RetryCallState) -> float:
+        delay = backoff(retry_state)
+        outcome = retry_state.outcome
+        exc = outcome.exception() if outcome is not None else None
+        hint = _retry_after_seconds(exc) if exc is not None else None
+        return delay if hint is None else max(delay, hint)
+
+    return wait
 
 
 class RetryMixin:
@@ -107,10 +171,12 @@ class RetryMixin:
             stop=stop_after_attempt(num_retries),
             reraise=True,
             retry=retry_condition,
-            wait=wait_exponential(
-                multiplier=retry_multiplier,
-                min=retry_min_wait,
-                max=retry_max_wait,
+            wait=_wait_at_least_retry_after(
+                wait_exponential(
+                    multiplier=retry_multiplier,
+                    min=retry_min_wait,
+                    max=retry_max_wait,
+                )
             ),
         )
         return retry_decorator
