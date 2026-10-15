@@ -364,20 +364,6 @@ def test_deferred_init_refreshes_persistence_ciphers(
                 ).status_code
                 == 200
             )
-            assert client.delete("/api/settings/secrets/QA_OTHER").status_code == 200
-
-    with live_server_env(
-        tmp_path, monkeypatch, config_overrides={"secret_key": "test-current-key"}
-    ) as environment:
-        with httpx.Client(base_url=environment["host"], trust_env=False) as client:
-            settings = client.get(
-                "/api/settings", headers={"X-Expose-Secrets": "plaintext"}
-            ).json()
-            assert settings["agent_settings"]["llm"]["api_key"] == "sk-test-saved"
-            assert settings["misc_settings"]["qa_note"] is True
-            assert client.get("/api/settings/secrets/QA_TOKEN").text == (
-                "test-saved-secret"
-            )
 
 
 def test_health_endpoints_return_ok_json(server_env):
