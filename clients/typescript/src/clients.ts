@@ -93,7 +93,11 @@ export type {
   WorkspaceItem,
   WorkspaceParentItem,
 } from './client/workspaces-client';
-export type { ConversationWorktree, WorktreesClientOptions } from './client/worktrees-client';
+export type {
+  ConversationWorktree,
+  RemoveWorktreeResponse,
+  WorktreesClientOptions,
+} from './client/worktrees-client';
 export type { AgentServerFeatureRequirement } from './client/agent-server-compatibility';
 export type {
   AgentServerCanvasBackendDataDeleteResponse,

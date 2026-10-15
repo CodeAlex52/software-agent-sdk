@@ -32,7 +32,7 @@ Routes: `GET /api/conversations/search`, `GET /api/conversations/count`,
 - `F04.create-initial-message-run-false`: an `initial_message` with `"run": false` is recorded without starting a run (the same body with `"run": true` runs).
 - `F04.create-parent`: `parent_conversation_id` links a child that the parent lists in `sub_conversation_ids`; an unknown parent, a different workspace and a self-parent are 422.
 - `F04.create-worktree`: `worktree: true` inside a git repository moves the conversation into its own worktree on branch `openhands/<id>`.
-- `F04.worktree-cleanup`: `GET /api/worktrees` lists a worktree with its conversation, branch, size and activity; removing it is 409 while its conversation is open or it holds uncommitted or untracked changes, and 204 once it is clean and cold. The branch stays, and loading the conversation again re-creates the worktree from it.
+- `F04.worktree-cleanup`: `GET /api/worktrees` lists a worktree with its conversation, branch, size and activity; removing it is 409 while its conversation is open or it holds uncommitted or untracked changes, and 200 (`removed: true`) once it is clean and cold. The branch stays, and loading the conversation again re-creates the worktree from it.
 - `F04.create-observability`: the `X-OpenHands-Observability-*` headers are validated (422 for non-object metadata) and stored in `meta.json`.
 - `F04.create-observability-precedence`: body `observability_span_name`, `observability_tags` and `observability_parent_span_context` win over their headers, header metadata merges under the body's (body keys win), the parent-span header applies when the body has none, and an over-long or malformed span-name header, non-scalar header metadata and an empty body tag are 422.
 - `F04.create-secrets`: start-time `StaticSecret` values appear masked in the create response and are encrypted at rest.
@@ -345,7 +345,7 @@ EOF
   echo draft > "$WTDIR/qa-notes.txt"
   control-agent-server api DELETE "/api/worktrees/$WT" --expect 409 --check detail contains 'uncommitted'
   rm "$WTDIR/qa-notes.txt"
-  control-agent-server api DELETE "/api/worktrees/$WT" --expect 204
+  control-agent-server api DELETE "/api/worktrees/$WT" --expect 200 --check removed eq true
   test ! -e "$WTDIR" && test -n "$(git -C "$REPO" branch --list "openhands/$WT")"
   control-agent-server api GET "/api/conversations/$WT/agent_final_response" --expect 200
   test "$(git -C "$WTDIR" rev-parse --abbrev-ref HEAD)" = "openhands/$WT"

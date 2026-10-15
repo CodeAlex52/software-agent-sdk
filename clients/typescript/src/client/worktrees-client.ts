@@ -22,6 +22,10 @@ export interface ConversationWorktree {
   in_use: boolean;
 }
 
+export interface RemoveWorktreeResponse {
+  removed: boolean;
+}
+
 export class WorktreesClient {
   public readonly host: string;
   public readonly apiKey?: string;
@@ -47,8 +51,11 @@ export class WorktreesClient {
    * conversations re-creates it. 409 while it has changes or a conversation
    * using it is open.
    */
-  async removeWorktree(name: string): Promise<void> {
-    await this.client.delete(`/api/worktrees/${encodeURIComponent(name)}`);
+  async removeWorktree(name: string): Promise<RemoveWorktreeResponse> {
+    const response = await this.client.delete<RemoveWorktreeResponse>(
+      `/api/worktrees/${encodeURIComponent(name)}`
+    );
+    return response.data;
   }
 
   close(): void {
