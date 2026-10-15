@@ -1,0 +1,23 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/init",
+    "query": [],
+    "auth": "none",
+    "body": null,
+    "files": []
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-length": "32",
+      "content-type": "application/json"
+    },
+    "body": {
+      "state": "dormant",
+      "error": null
+    },
+    "truncated": false
+  },
+  "elapsed_ms": 89
+}

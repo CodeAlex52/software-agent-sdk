@@ -1,0 +1,15 @@
+{
+  "ok": true,
+  "run": "/var/folders/15/pyrd6jhs3tnd259qd39xsplm0000gn/T/agent-server-verify/20261015-215630-a391-pr5758-baseline-2",
+  "helpers": [
+    {
+      "name": "pr5758-telemetry",
+      "outcome": "terminated"
+    }
+  ],
+  "server": "terminated",
+  "port_closed": true,
+  "orphans_reaped": [],
+  "evidence": "/var/folders/15/pyrd6jhs3tnd259qd39xsplm0000gn/T/agent-server-verify/20261015-215630-a391-pr5758-baseline-2/evidence",
+  "evidence_files": 9
+}
