@@ -43,6 +43,8 @@ from openhands.sdk.security.confirmation_policy import (
     NeverConfirm,
 )
 from openhands.sdk.settings.model import (
+    DOCKER_MEMORY_PATTERN,
+    MIN_CONTAINER_CPUS,
     ConversationRuntime,
     WorktreeBase,
     validate_agent_settings,
@@ -121,12 +123,12 @@ class ConversationContainerOptions(BaseModel):
 
     memory: str | None = Field(
         default=None,
-        min_length=1,
+        pattern=DOCKER_MEMORY_PATTERN,
         description="Container memory limit in `docker run --memory` syntax.",
     )
     cpus: float | None = Field(
         default=None,
-        gt=0,
+        ge=MIN_CONTAINER_CPUS,
         description="Number of CPUs the container may use (`docker run --cpus`).",
     )
     browser: bool = Field(

@@ -165,6 +165,10 @@ WorktreeBase = Literal["default_branch", "head"]
 (fetched from ``origin`` when there is one) or the checkout's current ``HEAD``."""
 ConversationRuntime = Literal["local", "docker"]
 """Where a conversation runs: on the agent-server's host or in its own container."""
+DOCKER_MEMORY_PATTERN = r"^\d+(\.\d+)? ?[kKmMgGtTpP]?[iI]?[bB]?$"
+"""What `docker run --memory` accepts (Docker's `RAMInBytes`), e.g. `512m`, `4g`."""
+MIN_CONTAINER_CPUS = 0.01
+"""The smallest `docker run --cpus` value Docker accepts."""
 
 
 type CondenserKind = Literal["llm_summarizing", "no_op"]
@@ -1247,10 +1251,11 @@ class ConversationSettings(BaseModel):
     )
     container_memory: str | None = Field(
         default=None,
-        min_length=1,
+        pattern=DOCKER_MEMORY_PATTERN,
         description=(
-            "Memory limit for a Docker conversation's container, e.g. `4g`. "
-            "Unset keeps the server default."
+            "Memory limit for each new Docker conversation's container, in "
+            "`docker run --memory` syntax such as `512m` or `4g`. Unset keeps "
+            "the server default."
         ),
         json_schema_extra={
             SETTINGS_METADATA_KEY: SettingsFieldMetadata(
@@ -1262,10 +1267,10 @@ class ConversationSettings(BaseModel):
     )
     container_cpus: float | None = Field(
         default=None,
-        gt=0,
+        ge=MIN_CONTAINER_CPUS,
         description=(
-            "CPUs a Docker conversation's container may use. Unset keeps the "
-            "server default."
+            "CPUs each new Docker conversation's container may use, from 0.01 "
+            "up to the machine's CPU count. Unset keeps the server default."
         ),
         json_schema_extra={
             SETTINGS_METADATA_KEY: SettingsFieldMetadata(
@@ -1278,8 +1283,8 @@ class ConversationSettings(BaseModel):
     container_browser: bool = Field(
         default=True,
         description=(
-            "Run a browser in Docker conversation containers. Has no effect "
-            "when the server's image ships without one."
+            "Run a browser in new Docker conversations' containers. Has no "
+            "effect when the server's image ships without one."
         ),
         json_schema_extra={
             SETTINGS_METADATA_KEY: SettingsFieldMetadata(

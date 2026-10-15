@@ -275,6 +275,29 @@ def test_conversation_settings_runtime_fields_reach_the_start_request(
     ) == container
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "valid"),
+    [
+        ("container_memory", "512m", True),
+        ("container_memory", "4 GB", True),
+        ("container_memory", "2GiB", True),
+        # `docker run --memory` refuses these, so every start would fail.
+        ("container_memory", "lots", False),
+        ("container_memory", "", False),
+        ("container_cpus", 0.01, True),
+        ("container_cpus", 0.001, False),
+    ],
+)
+def test_container_limits_are_checked_when_saved(
+    field: str, value: str | float, valid: bool
+) -> None:
+    if valid:
+        ConversationSettings.model_validate({field: value})
+    else:
+        with pytest.raises(ValidationError):
+            ConversationSettings.model_validate({field: value})
+
+
 @pytest.mark.parametrize("runtime", [None, "local", "docker"])
 def test_the_default_runtime_reaches_the_start_request_only_when_set(
     runtime: ConversationRuntime | None,
