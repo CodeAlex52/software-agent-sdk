@@ -1653,7 +1653,6 @@ class ConversationService:
                 "agent",
                 "agent_settings",
                 "agent_profile_id",
-                "agent_profile",
                 "agent_launch_additions",
             },
         )
