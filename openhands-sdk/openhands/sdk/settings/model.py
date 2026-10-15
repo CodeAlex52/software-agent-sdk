@@ -1372,10 +1372,10 @@ class ConversationSettings(BaseModel):
         options = {
             "memory": self.container_memory,
             "cpus": self.container_cpus,
-            "browser": self.container_browser,
+            # Only an opt-out is sent: True keeps the server's own default.
+            "browser": None if self.container_browser else False,
         }
-        # Defaults are left out so the request keeps the server's own.
-        options = {k: v for k, v in options.items() if v not in (None, True)}
+        options = {k: v for k, v in options.items() if v is not None}
         return options or None
 
     def create_request(

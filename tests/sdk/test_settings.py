@@ -249,6 +249,9 @@ def test_conversation_settings_export_schema_groups_sections() -> None:
             ),
             {"memory": "4g", "cpus": 2.0, "browser": False},
         ),
+        # 1.0 == True in Python: a one-CPU limit must not be mistaken for a
+        # default and dropped.
+        (ConversationSettings(container_cpus=1), {"cpus": 1.0, "browser": True}),
     ],
 )
 def test_conversation_settings_runtime_fields_reach_the_start_request(
