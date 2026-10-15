@@ -148,6 +148,7 @@ export { HttpClient, HttpError, isHttpError } from './client/http-client';
 export { HooksClient } from './client/hooks-client';
 export { MCPClient } from './client/mcp-client';
 export { WorkspacesClient } from './client/workspaces-client';
+export { WorktreesClient } from './client/worktrees-client';
 export {
   AGENT_SERVER_VERSION_ERROR_CODE,
   AgentServerFeatureRequirements,
@@ -310,6 +311,7 @@ export type {
   WorkspaceItem,
   WorkspaceParentItem,
 } from './client/workspaces-client';
+export type { ConversationWorktree, WorktreesClientOptions } from './client/worktrees-client';
 export type { AgentServerFeatureRequirement } from './client/agent-server-compatibility';
 export type {
   AgentServerConversationSettingsSchema,
@@ -503,6 +505,7 @@ import { HttpClient, HttpError, isHttpError } from './client/http-client';
 import { HooksClient } from './client/hooks-client';
 import { MCPClient } from './client/mcp-client';
 import { WorkspacesClient } from './client/workspaces-client';
+import { WorktreesClient } from './client/worktrees-client';
 import {
   AGENT_SERVER_VERSION_ERROR_CODE,
   AgentServerFeatureRequirements,
@@ -558,6 +561,7 @@ export default {
   HooksClient,
   MCPClient,
   WorkspacesClient,
+  WorktreesClient,
   AGENT_SERVER_VERSION_ERROR_CODE,
   AgentServerFeatureRequirements,
   AgentServerVersionError,

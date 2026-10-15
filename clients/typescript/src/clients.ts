@@ -27,6 +27,7 @@ export { ToolClient } from './client/tool-client';
 export { VSCodeClient } from './client/vscode-client';
 export { SharedClient } from './client/shared-client';
 export { WorkspacesClient } from './client/workspaces-client';
+export { WorktreesClient } from './client/worktrees-client';
 export { AgentServerClient, OpenHandsClient } from './client/openhands-client';
 export { CloudClient } from './client/cloud-client';
 export {
@@ -92,6 +93,7 @@ export type {
   WorkspaceItem,
   WorkspaceParentItem,
 } from './client/workspaces-client';
+export type { ConversationWorktree, WorktreesClientOptions } from './client/worktrees-client';
 export type { AgentServerFeatureRequirement } from './client/agent-server-compatibility';
 export type {
   AgentServerCanvasBackendDataDeleteResponse,

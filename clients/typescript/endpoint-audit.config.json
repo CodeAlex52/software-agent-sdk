@@ -14,6 +14,11 @@
 
   "allowClientOnly": [
     {
+      "endpoints": ["DELETE /api/worktrees/{}", "GET /api/worktrees"],
+      "reason": "Client-ahead API for the conversation worktree cleanup list, shipped by the same Agent Server change; drop this entry once the pinned release includes it.",
+      "owner": "OpenHands runtime maintainers"
+    },
+    {
       "endpoints": ["GET /", "GET /alive", "GET /health", "GET /ready", "GET /server_info"],
       "reason": "Operational Agent Server endpoints intentionally excluded from the filtered public release artifact.",
       "owner": "OpenHands runtime maintainers"
