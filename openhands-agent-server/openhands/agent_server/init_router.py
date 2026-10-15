@@ -37,7 +37,7 @@ from openhands.agent_server.conversation_registry import (
     create_conversation_registry,
 )
 from openhands.agent_server.conversation_service import ConversationService
-from openhands.agent_server.persistence import reencrypt_stale_stores
+from openhands.agent_server.persistence import reencrypt_stale_stores, reset_stores
 from openhands.agent_server.server_details_router import mark_initialization_complete
 from openhands.agent_server.telemetry import (
     build_telemetry_sink,
@@ -269,6 +269,8 @@ class InitService:
             # for an init that later fails and rolls back to dormant, leaving
             # an unpaired start and letting a retry emit a second one.
             await shutdown_telemetry_sink()
+            reset_stores()
+            await asyncio.to_thread(reencrypt_stale_stores, new_config)
             self._app.state.telemetry_sink = await build_telemetry_sink(new_config)
 
             # Reset the module-level singleton so other call sites that go
@@ -276,7 +278,6 @@ class InitService:
             # instance built from the merged config.
             from openhands.agent_server import conversation_service as cs_mod
 
-            await asyncio.to_thread(reencrypt_stale_stores, new_config)
             service = ConversationService.get_instance(new_config)
             cs_mod._conversation_service = service
             conversation_registry = create_conversation_registry(new_config)
