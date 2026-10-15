@@ -165,6 +165,9 @@ WorktreeBase = Literal["default_branch", "head"]
 (fetched from ``origin`` when there is one) or the checkout's current ``HEAD``."""
 ConversationRuntime = Literal["local", "docker"]
 """Where a conversation runs: on the agent-server's host or in its own container."""
+DefaultRuntime = Literal["local", "worktree", "docker"]
+"""Where new conversations run by default: the workspace on the host, a new git
+worktree of it on the host, or their own container."""
 DOCKER_MEMORY_PATTERN = r"^\d+(\.\d+)? ?[kKmMgGtTpP]?[iI]?[bB]?$"
 """What `docker run --memory` accepts (Docker's `RAMInBytes`), e.g. `512m`, `4g`."""
 MIN_CONTAINER_CPUS = 0.01
@@ -1220,12 +1223,12 @@ class ConversationSettings(BaseModel):
             ).model_dump(),
         },
     )
-    conversation_runtime: ConversationRuntime | None = Field(
-        default=None,
+    default_runtime: DefaultRuntime = Field(
+        default="local",
         description=(
-            "Where new conversations run: on the host, or each in its own Docker "
-            "container. Unset uses the server's default; Docker needs a server "
-            "that offers it."
+            "Where new conversations run: in the workspace on the host, in a "
+            "new git worktree of it, or in their own Docker container (which "
+            "needs a server that offers it)."
         ),
         json_schema_extra={
             SETTINGS_METADATA_KEY: SettingsFieldMetadata(
@@ -1245,6 +1248,7 @@ class ConversationSettings(BaseModel):
             SETTINGS_METADATA_KEY: SettingsFieldMetadata(
                 label="Create worktrees from",
                 prominence=SettingProminence.MAJOR,
+                depends_on=("default_runtime=worktree",),
             ).model_dump(),
             SETTINGS_SECTION_METADATA_KEY: _RUNTIME_SECTION_METADATA,
         },
@@ -1261,6 +1265,7 @@ class ConversationSettings(BaseModel):
             SETTINGS_METADATA_KEY: SettingsFieldMetadata(
                 label="Container memory limit",
                 prominence=SettingProminence.MAJOR,
+                depends_on=("default_runtime=docker",),
             ).model_dump(),
             SETTINGS_SECTION_METADATA_KEY: _RUNTIME_SECTION_METADATA,
         },
@@ -1276,6 +1281,7 @@ class ConversationSettings(BaseModel):
             SETTINGS_METADATA_KEY: SettingsFieldMetadata(
                 label="Container CPU limit",
                 prominence=SettingProminence.MAJOR,
+                depends_on=("default_runtime=docker",),
             ).model_dump(),
             SETTINGS_SECTION_METADATA_KEY: _RUNTIME_SECTION_METADATA,
         },
@@ -1290,6 +1296,7 @@ class ConversationSettings(BaseModel):
             SETTINGS_METADATA_KEY: SettingsFieldMetadata(
                 label="Browser in containers",
                 prominence=SettingProminence.MAJOR,
+                depends_on=("default_runtime=docker",),
             ).model_dump(),
             SETTINGS_SECTION_METADATA_KEY: _RUNTIME_SECTION_METADATA,
         },
@@ -1386,8 +1393,12 @@ class ConversationSettings(BaseModel):
         payload.setdefault("confirmation_policy", self._build_confirmation_policy())
         payload.setdefault("security_analyzer", self._build_security_analyzer())
         payload.setdefault("max_iterations", self.max_iterations)
-        if self.conversation_runtime is not None:
-            payload.setdefault("conversation_runtime", self.conversation_runtime)
+        # "local" sends nothing, so a server's own default (and a Docker-only
+        # server, which rejects "local") is left alone.
+        if self.default_runtime == "docker":
+            payload.setdefault("conversation_runtime", "docker")
+        elif self.default_runtime == "worktree":
+            payload.setdefault("worktree", True)
         payload.setdefault("worktree_base", self.worktree_base)
         payload.setdefault("container", self._container_options())
         return payload

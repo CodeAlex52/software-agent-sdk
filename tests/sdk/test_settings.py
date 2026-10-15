@@ -40,7 +40,7 @@ from openhands.sdk.settings import (
 )
 from openhands.sdk.settings.model import (
     ACPServerKind,
-    ConversationRuntime,
+    DefaultRuntime,
     _agent_settings_discriminator,
     _condenser_settings_discriminator,
     _migrate_agent_settings_payload,
@@ -225,22 +225,25 @@ def test_conversation_settings_export_schema_groups_sections() -> None:
     assert verification_fields["security_analyzer"].depends_on == ["confirmation_mode"]
 
     runtime_fields = {f.key: f for f in sections["runtime"].fields}
-    assert set(runtime_fields) == {
-        "conversation_runtime",
-        "worktree_base",
-        "container_memory",
-        "container_cpus",
-        "container_browser",
+    assert [c.value for c in runtime_fields["default_runtime"].choices] == [
+        "local",
+        "worktree",
+        "docker",
+    ]
+    assert runtime_fields["default_runtime"].default == "local"
+    # Each runtime's options show only while that runtime is the default.
+    assert {key: f.depends_on for key, f in runtime_fields.items()} == {
+        "default_runtime": [],
+        "worktree_base": ["default_runtime=worktree"],
+        "container_memory": ["default_runtime=docker"],
+        "container_cpus": ["default_runtime=docker"],
+        "container_browser": ["default_runtime=docker"],
     }
     assert [c.value for c in runtime_fields["worktree_base"].choices] == [
         "default_branch",
         "head",
     ]
     assert runtime_fields["container_browser"].default is True
-    assert [c.value for c in runtime_fields["conversation_runtime"].choices] == [
-        "local",
-        "docker",
-    ]
     # One tier: the page has a few fields, none worth hiding behind "All".
     assert {f.prominence for f in runtime_fields.values()} == {SettingProminence.MAJOR}
 
@@ -298,18 +301,28 @@ def test_container_limits_are_checked_when_saved(
             ConversationSettings.model_validate({field: value})
 
 
-@pytest.mark.parametrize("runtime", [None, "local", "docker"])
-def test_the_default_runtime_reaches_the_start_request_only_when_set(
-    runtime: ConversationRuntime | None,
+@pytest.mark.parametrize(
+    ("default_runtime", "conversation_runtime", "worktree"),
+    [
+        # Local sends no runtime: a Docker-only server would reject "local".
+        ("local", None, False),
+        ("worktree", None, True),
+        ("docker", "docker", False),
+    ],
+)
+def test_the_default_runtime_shapes_the_start_request(
+    default_runtime: DefaultRuntime,
+    conversation_runtime: str | None,
+    worktree: bool,
 ) -> None:
-    request = ConversationSettings(conversation_runtime=runtime).create_request(
+    request = ConversationSettings(default_runtime=default_runtime).create_request(
         StartConversationRequest,
         agent=Agent(llm=LLM(model="test-model", usage_id="test-llm"), tools=[]),
         workspace=LocalWorkspace(working_dir="/tmp"),
     )
 
-    # Unset leaves the choice to the server's configured default.
-    assert request.conversation_runtime == runtime
+    assert request.conversation_runtime == conversation_runtime
+    assert request.worktree is worktree
 
 
 def test_export_settings_schema_remains_backward_compatible():
