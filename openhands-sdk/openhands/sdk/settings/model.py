@@ -160,9 +160,17 @@ class SettingsSchema(BaseModel):
 
 CriticMode = Literal["finish_and_message", "all_actions"]
 SecurityAnalyzerType = Literal["llm", "none"]
-WorktreeBase = Literal["default_branch", "head"]
-"""Ref a conversation worktree branches from: the repository's default branch
-(fetched from ``origin`` when there is one) or the checkout's current ``HEAD``."""
+WorktreeBase = Literal["default_branch", "head", "ref"]
+"""What a conversation worktree branches from: the repository's default branch
+(fetched from ``origin`` when there is one), the checkout's current ``HEAD``, or
+a given ref."""
+DEFAULT_WORKTREE_BRANCH_PREFIX = "openhands/"
+"""Worktree branches are named ``<prefix><conversation id>``."""
+GIT_REF_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._/-]*$"
+"""A branch, tag or commit name. It never starts with ``-``, so git cannot read
+it as an option."""
+GIT_BRANCH_PREFIX_PATTERN = r"^([A-Za-z0-9][A-Za-z0-9._/-]*)?$"
+"""A branch name prefix, possibly empty, under the same rule."""
 ConversationRuntime = Literal["local", "docker"]
 """Where a conversation runs: on the agent-server's host or in its own container."""
 DefaultRuntime = Literal["local", "worktree", "docker"]
@@ -1241,12 +1249,44 @@ class ConversationSettings(BaseModel):
     worktree_base: WorktreeBase = Field(
         default="default_branch",
         description=(
-            "Ref a new conversation worktree branches from: the repository's "
-            "default branch, or the checkout's current HEAD."
+            "What a new conversation worktree branches from: the repository's "
+            "default branch, the checkout's current HEAD, or `worktree_base_ref`."
         ),
         json_schema_extra={
             SETTINGS_METADATA_KEY: SettingsFieldMetadata(
                 label="Create worktrees from",
+                prominence=SettingProminence.MAJOR,
+                depends_on=("default_runtime=worktree",),
+            ).model_dump(),
+            SETTINGS_SECTION_METADATA_KEY: _RUNTIME_SECTION_METADATA,
+        },
+    )
+    worktree_base_ref: str | None = Field(
+        default=None,
+        pattern=GIT_REF_PATTERN,
+        description=(
+            "Branch, tag or commit new worktrees branch from when "
+            "`worktree_base` is `ref`, e.g. `develop` or `origin/release`."
+        ),
+        json_schema_extra={
+            SETTINGS_METADATA_KEY: SettingsFieldMetadata(
+                label="Ref",
+                prominence=SettingProminence.MAJOR,
+                depends_on=("default_runtime=worktree", "worktree_base=ref"),
+            ).model_dump(),
+            SETTINGS_SECTION_METADATA_KEY: _RUNTIME_SECTION_METADATA,
+        },
+    )
+    worktree_branch_prefix: str = Field(
+        default=DEFAULT_WORKTREE_BRANCH_PREFIX,
+        pattern=GIT_BRANCH_PREFIX_PATTERN,
+        description=(
+            "Start of each worktree's branch name, which ends in the "
+            "conversation id, e.g. `openhands/` or `me/`."
+        ),
+        json_schema_extra={
+            SETTINGS_METADATA_KEY: SettingsFieldMetadata(
+                label="Branch name prefix",
                 prominence=SettingProminence.MAJOR,
                 depends_on=("default_runtime=worktree",),
             ).model_dump(),
@@ -1301,6 +1341,12 @@ class ConversationSettings(BaseModel):
             SETTINGS_SECTION_METADATA_KEY: _RUNTIME_SECTION_METADATA,
         },
     )
+
+    @model_validator(mode="after")
+    def _ref_for_ref_base(self) -> ConversationSettings:
+        if self.worktree_base == "ref" and self.worktree_base_ref is None:
+            raise ValueError("Branching worktrees from a ref needs worktree_base_ref")
+        return self
 
     @classmethod
     def export_schema(cls) -> SettingsSchema:
@@ -1399,9 +1445,19 @@ class ConversationSettings(BaseModel):
             payload.setdefault("conversation_runtime", "docker")
         elif self.default_runtime == "worktree":
             payload.setdefault("worktree", True)
-        payload.setdefault("worktree_base", self.worktree_base)
+        payload.setdefault("worktree_options", self._worktree_options())
         payload.setdefault("container", self._container_options())
         return payload
+
+    def _worktree_options(self) -> dict[str, Any] | None:
+        options: dict[str, Any] = {}
+        if self.worktree_base != "default_branch":
+            options["base"] = self.worktree_base
+        if self.worktree_base == "ref":
+            options["ref"] = self.worktree_base_ref
+        if self.worktree_branch_prefix != DEFAULT_WORKTREE_BRANCH_PREFIX:
+            options["branch_prefix"] = self.worktree_branch_prefix
+        return options or None
 
     def _container_options(self) -> dict[str, Any] | None:
         options = {

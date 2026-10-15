@@ -261,6 +261,8 @@ def test_get_settings_migrates_legacy_openhands_settings_and_resaves_current(
         "confirmation_mode": True,
         "security_analyzer": "llm",
         "default_runtime": "local",
+        "worktree_base_ref": None,
+        "worktree_branch_prefix": "openhands/",
         "worktree_base": "default_branch",
         "container_memory": None,
         "container_cpus": None,

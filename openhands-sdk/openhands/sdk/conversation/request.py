@@ -43,7 +43,10 @@ from openhands.sdk.security.confirmation_policy import (
     NeverConfirm,
 )
 from openhands.sdk.settings.model import (
+    DEFAULT_WORKTREE_BRANCH_PREFIX,
     DOCKER_MEMORY_PATTERN,
+    GIT_BRANCH_PREFIX_PATTERN,
+    GIT_REF_PATTERN,
     MIN_CONTAINER_CPUS,
     ConversationRuntime,
     WorktreeBase,
@@ -140,6 +143,33 @@ class ConversationContainerOptions(BaseModel):
     )
 
 
+class ConversationWorktreeOptions(BaseModel):
+    """How the server creates a conversation's worktree (``worktree=True``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    base: WorktreeBase = Field(
+        default="default_branch",
+        description="What the worktree branches from; `ref` uses `ref`.",
+    )
+    ref: str | None = Field(
+        default=None,
+        pattern=GIT_REF_PATTERN,
+        description="Branch, tag or commit to branch from when `base` is `ref`.",
+    )
+    branch_prefix: str = Field(
+        default=DEFAULT_WORKTREE_BRANCH_PREFIX,
+        pattern=GIT_BRANCH_PREFIX_PATTERN,
+        description="Start of the worktree's branch name; the conversation id ends it.",
+    )
+
+    @model_validator(mode="after")
+    def _ref_for_ref_base(self) -> ConversationWorktreeOptions:
+        if self.base == "ref" and self.ref is None:
+            raise ValueError("A `ref` base needs a `ref`")
+        return self
+
+
 class ConversationConfig(BaseModel):
     """Shared conversation configuration — everything except the agent.
 
@@ -164,9 +194,9 @@ class ConversationConfig(BaseModel):
             "`/tmp/conversation-worktrees/<conversation_id>/<project_name>`."
         ),
     )
-    worktree_base: WorktreeBase = Field(
-        default="default_branch",
-        description="Ref the conversation worktree branches from.",
+    worktree_options: ConversationWorktreeOptions | None = Field(
+        default=None,
+        description="How the worktree is created (`worktree=True`); unset: defaults.",
     )
     container: ConversationContainerOptions | None = Field(
         default=None,

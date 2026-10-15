@@ -63,6 +63,7 @@ from openhands.sdk.agent.acp_file_credentials import CODEX_AUTH_SECRET_NAME
 from openhands.sdk.agent.base import AgentBase
 from openhands.sdk.conversation.impl.local_conversation import LocalConversation
 from openhands.sdk.conversation.persistence_const import BASE_STATE
+from openhands.sdk.conversation.request import ConversationWorktreeOptions
 from openhands.sdk.conversation.state import (
     ConversationExecutionStatus,
     ConversationState,
@@ -84,7 +85,6 @@ from openhands.sdk.launch import LaunchedAgent, finalize
 from openhands.sdk.llm.call_context import LLMCallContext
 from openhands.sdk.mcp.utils import MCPToolProvider
 from openhands.sdk.observability import OPERATION_METADATA_KEY, observe
-from openhands.sdk.settings.model import WorktreeBase
 from openhands.sdk.tool.client_tool import register_client_tools
 from openhands.sdk.tool.registry import get_tool_module_qualnames
 from openhands.sdk.utils.cipher import Cipher
@@ -108,13 +108,12 @@ def _build_worktree_guidance(
     worktree_root: Path,
     workspace_dir: Path,
     branch: str,
-    base: WorktreeBase,
+    options: ConversationWorktreeOptions,
 ) -> str:
-    base_ref = (
-        "the original workspace's current HEAD"
-        if base == "head"
-        else "the main/master branch"
-    )
+    base_ref = {
+        "head": "the original workspace's current HEAD",
+        "ref": f"`{options.ref}`",
+    }.get(options.base, "the main/master branch")
     return (
         "This conversation uses a dedicated git worktree.\n"
         f"- Original workspace: {source_workspace}\n"
@@ -146,6 +145,20 @@ def _local_branch_exists(repo_root: Path, branch: str) -> bool:
     return True
 
 
+def _fetch_origin(repo_root: Path) -> None:
+    """Refresh ``origin``'s refs for a worktree start point; keep cached ones on
+    failure."""
+    try:
+        run_git_command(["git", "fetch", "origin"], repo_root, timeout=60)
+    except GitCommandError as exc:
+        logger.warning(
+            "git fetch origin failed while choosing worktree start point "
+            "for %s; using cached refs. Error: %s",
+            repo_root,
+            exc,
+        )
+
+
 def _get_worktree_start_point(repo_root: Path) -> str:
     """Resolve the base ref a new conversation worktree should be created from.
 
@@ -162,15 +175,7 @@ def _get_worktree_start_point(repo_root: Path) -> str:
          creation still succeeds on freshly initialized repos.
     """
     if _has_git_remote(repo_root):
-        try:
-            run_git_command(["git", "fetch", "origin"], repo_root, timeout=60)
-        except GitCommandError as exc:
-            logger.warning(
-                "git fetch origin failed while choosing worktree start point "
-                "for %s; using cached refs. Error: %s",
-                repo_root,
-                exc,
-            )
+        _fetch_origin(repo_root)
         try:
             ref = run_git_command(
                 ["git", "symbolic-ref", "refs/remotes/origin/HEAD"],
@@ -196,7 +201,7 @@ class _WorktreePlan:
     worktree_root: Path
     workspace_dir: Path
     branch: str
-    base: WorktreeBase
+    options: ConversationWorktreeOptions
 
     @property
     def guidance(self) -> str:
@@ -205,7 +210,7 @@ class _WorktreePlan:
             worktree_root=self.worktree_root,
             workspace_dir=self.workspace_dir,
             branch=self.branch,
-            base=self.base,
+            options=self.options,
         )
 
 
@@ -213,8 +218,9 @@ def _plan_conversation_worktree(
     workspace: LocalWorkspace,
     conversation_id: UUID,
     conversation_worktree_root: Path,
-    base: WorktreeBase = "default_branch",
+    options: ConversationWorktreeOptions | None = None,
 ) -> _WorktreePlan | None:
+    options = options or ConversationWorktreeOptions()
     source_workspace = Path(workspace.working_dir).resolve()
     try:
         validate_git_repository(source_workspace)
@@ -233,9 +239,19 @@ def _plan_conversation_worktree(
         source_workspace=source_workspace,
         worktree_root=worktree_root,
         workspace_dir=worktree_root / source_workspace.relative_to(repo_root),
-        branch=f"openhands/{conversation_id}",
-        base=base,
+        branch=f"{options.branch_prefix}{conversation_id}",
+        options=options,
     )
+
+
+def _worktree_start_point(plan: _WorktreePlan) -> str:
+    if plan.options.base == "head":
+        return "HEAD"
+    if plan.options.base == "ref" and plan.options.ref:
+        if _has_git_remote(plan.repo_root):
+            _fetch_origin(plan.repo_root)
+        return plan.options.ref
+    return _get_worktree_start_point(plan.repo_root)
 
 
 def _create_conversation_worktree(plan: _WorktreePlan) -> LocalWorkspace:
@@ -264,7 +280,7 @@ def _create_conversation_worktree(plan: _WorktreePlan) -> LocalWorkspace:
             "-b",
             plan.branch,
             str(plan.worktree_root),
-            "HEAD" if plan.base == "head" else _get_worktree_start_point(repo_root),
+            _worktree_start_point(plan),
         ],
         repo_root,
     )
@@ -1571,7 +1587,7 @@ class ConversationService:
                 request.workspace,
                 conversation_id,
                 self.conversation_worktree_root,
-                request.worktree_base,
+                request.worktree_options,
             )
             if request.worktree
             else None

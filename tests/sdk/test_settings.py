@@ -235,6 +235,8 @@ def test_conversation_settings_export_schema_groups_sections() -> None:
     assert {key: f.depends_on for key, f in runtime_fields.items()} == {
         "default_runtime": [],
         "worktree_base": ["default_runtime=worktree"],
+        "worktree_base_ref": ["default_runtime=worktree", "worktree_base=ref"],
+        "worktree_branch_prefix": ["default_runtime=worktree"],
         "container_memory": ["default_runtime=docker"],
         "container_cpus": ["default_runtime=docker"],
         "container_browser": ["default_runtime=docker"],
@@ -242,7 +244,9 @@ def test_conversation_settings_export_schema_groups_sections() -> None:
     assert [c.value for c in runtime_fields["worktree_base"].choices] == [
         "default_branch",
         "head",
+        "ref",
     ]
+    assert runtime_fields["worktree_branch_prefix"].default == "openhands/"
     assert runtime_fields["container_browser"].default is True
     # One tier: the page has a few fields, none worth hiding behind "All".
     assert {f.prominence for f in runtime_fields.values()} == {SettingProminence.MAJOR}
@@ -266,16 +270,61 @@ def test_conversation_settings_export_schema_groups_sections() -> None:
 def test_conversation_settings_runtime_fields_reach_the_start_request(
     settings: ConversationSettings, container: dict[str, Any] | None
 ) -> None:
-    request = settings.model_copy(update={"worktree_base": "head"}).create_request(
+    request = settings.create_request(
         StartConversationRequest,
         agent=Agent(llm=LLM(model="test-model", usage_id="test-llm"), tools=[]),
         workspace=LocalWorkspace(working_dir="/tmp"),
     )
 
-    assert request.worktree_base == "head"
     assert (
         request.container.model_dump(exclude_none=True) if request.container else None
     ) == container
+
+
+@pytest.mark.parametrize(
+    ("settings", "worktree_options"),
+    [
+        (ConversationSettings(), None),
+        (ConversationSettings(worktree_base="head"), {"base": "head"}),
+        (
+            ConversationSettings(
+                worktree_base="ref",
+                worktree_base_ref="origin/release",
+                worktree_branch_prefix="me/",
+            ),
+            {"base": "ref", "ref": "origin/release", "branch_prefix": "me/"},
+        ),
+    ],
+)
+def test_worktree_settings_reach_the_start_request(
+    settings: ConversationSettings, worktree_options: dict[str, Any] | None
+) -> None:
+    request = settings.create_request(
+        StartConversationRequest,
+        agent=Agent(llm=LLM(model="test-model", usage_id="test-llm"), tools=[]),
+        workspace=LocalWorkspace(working_dir="/tmp"),
+    )
+
+    assert (
+        request.worktree_options.model_dump(exclude_defaults=True)
+        if request.worktree_options
+        else None
+    ) == worktree_options
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        # "Other ref" needs the ref itself.
+        {"worktree_base": "ref"},
+        # git would read a leading "-" as an option.
+        {"worktree_base": "ref", "worktree_base_ref": "--orphan"},
+        {"worktree_branch_prefix": "-b"},
+    ],
+)
+def test_unusable_worktree_settings_are_refused(values: dict[str, str]) -> None:
+    with pytest.raises(ValidationError):
+        ConversationSettings.model_validate(values)
 
 
 @pytest.mark.parametrize(
