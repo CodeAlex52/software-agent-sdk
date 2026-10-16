@@ -111,6 +111,20 @@ async def _upload_file(path: str, file: UploadFile) -> Success:
 
     except HTTPException:
         raise
+    except IsADirectoryError:
+        # The target itself is an existing directory: the caller's path is
+        # wrong, not a server fault (create_directory answers 400 likewise).
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Path is a directory",
+        )
+    except (FileExistsError, NotADirectoryError):
+        # mkdir(parents=True) raises FileExistsError when the direct parent is
+        # a file and NotADirectoryError when a component further up is one.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A parent of the path is not a directory",
+        )
     except Exception as e:
         logger.error(f"Failed to upload file: {e}")
         raise HTTPException(
@@ -921,7 +935,6 @@ async def download_trajectory(
     request: Request,
 ) -> FileResponse:
     """Download a zip archive of a conversation trajectory."""
-    # The live config: POST /api/init may have moved conversations_path.
     config: Config = request.app.state.config
     temp_file = config.conversations_path / f"{conversation_id.hex}.zip"
     conversation_dir = config.conversations_path / conversation_id.hex
