@@ -6,11 +6,9 @@ request onto them when its conversation has a Docker provisioning manifest, or
 when a start request selects ``conversation_runtime="docker"``.
 """
 
-from __future__ import annotations
-
 import json
 import re
-from typing import Any
+from typing import Any, Final
 from uuid import UUID
 
 from fastapi import APIRouter
@@ -21,7 +19,7 @@ from openhands.agent_server.docker_runtime.registry import DockerConversationReg
 from openhands.agent_server.models import ConversationRuntimeInfo
 
 
-DOCKER_ROUTE_PREFIX = "/_docker"
+DOCKER_ROUTE_PREFIX: Final[str] = "/_docker"
 
 _UUID = (
     r"[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}"
@@ -31,6 +29,13 @@ _SOCKET_PATH = re.compile(rf"^/sockets/(?:events|session)/({_UUID})$")
 
 
 class HybridConversationRegistry(DockerConversationRegistry):
+    """Registry for a server that runs both local and Docker conversations.
+
+    A conversation with a Docker provisioning manifest is a Docker one; any other
+    is local. Local routes keep their paths, and the Docker ones are mounted
+    again under ``DOCKER_ROUTE_PREFIX``.
+    """
+
     def is_docker(self, conversation_id: UUID) -> bool:
         return self.provisioning.manifest_path(conversation_id).is_file()
 
