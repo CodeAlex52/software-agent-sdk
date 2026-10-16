@@ -202,6 +202,7 @@ def try_cached_clone_or_update(
     git_helper: GitHelper | None = None,
     lock_timeout: float = DEFAULT_LOCK_TIMEOUT,
     strict_ref: bool = False,
+    strict: bool = False,
 ) -> Path | None:
     """Clone or update a git repository in a cache directory.
 
@@ -232,6 +233,9 @@ def try_cached_clone_or_update(
             existing cached clone cannot be put on ``ref``, instead of falling
             back to whatever the cache has checked out. A first clone always
             fails on an unknown ref.
+        strict: If True, an update whose fetch (or checkout of ``ref`` after the
+            fetch) fails returns None instead of the stale cached repository.
+            The cached repository is left on disk either way.
 
     Returns:
         Path to the local repository if successful, None on failure.
@@ -248,7 +252,9 @@ def try_cached_clone_or_update(
 
     try:
         with lock.acquire(timeout=lock_timeout):
-            return _do_clone_or_update(url, repo_path, ref, update, git, strict_ref)
+            return _do_clone_or_update(
+                url, repo_path, ref, update, git, strict_ref, strict
+            )
     except Timeout:
         logger.warning(
             f"Timed out waiting for lock on {repo_path} after {lock_timeout}s"
@@ -269,6 +275,7 @@ def _do_clone_or_update(
     update: bool,
     git: GitHelper,
     strict_ref: bool = False,
+    strict: bool = False,
 ) -> Path:
     """Perform the actual clone or update operation (called while holding lock).
 
@@ -279,6 +286,7 @@ def _do_clone_or_update(
         update: Whether to update existing repos.
         git: GitHelper instance.
         strict_ref: Raise when an existing clone cannot be put on ``ref``.
+        strict: Whether a failed update raises instead of keeping the cache.
 
     Returns:
         Path to the repository.
@@ -289,7 +297,9 @@ def _do_clone_or_update(
     if repo_path.exists() and (repo_path / ".git").exists():
         if update:
             logger.debug(f"Updating repository at {repo_path}")
-            _update_repository(repo_path, ref, git, strict_ref=strict_ref)
+            _update_repository(
+                repo_path, ref, git, strict_ref=strict_ref, strict=strict
+            )
         elif ref:
             logger.debug(f"Checking out ref {ref} at {repo_path}")
             _checkout_ref(repo_path, ref, git)
@@ -337,6 +347,7 @@ def _update_repository(
     ref: str | None,
     git: GitHelper,
     strict_ref: bool = False,
+    strict: bool = False,
 ) -> None:
     """Update an existing cached repository to the latest remote state.
 
@@ -367,10 +378,12 @@ def _update_repository(
             ``ref`` is not available locally) instead of keeping the cached
             checkout. A branch already present locally is still used, stale,
             when the fetch fails.
+        strict: If True, a failed fetch, or a failed checkout of ``ref`` after
+            the fetch, raises ``GitCommandError`` instead of keeping the cache.
 
     Raises:
-        GitCommandError: Only with ``strict_ref``, when ``ref`` cannot be
-            checked out.
+        GitCommandError: Only with ``strict_ref`` or ``strict``, as described
+            above.
     """
     checked_out_locally = False
     if ref:
@@ -386,8 +399,11 @@ def _update_repository(
         except GitCommandError:
             pass  # ref not cached locally; fall through to fetch
 
-    # Fetch from origin - if this fails, we still have a usable (stale) cache
-    if not _try_fetch(repo_path, git):
+    # Fetch from origin - if this fails, we still have a usable (stale) cache;
+    # strict callers need to know the update did not happen.
+    if strict:
+        git.fetch(repo_path)
+    elif not _try_fetch(repo_path, git):
         if ref and strict_ref and not checked_out_locally:
             raise GitCommandError(
                 f"Fetch failed and ref {ref!r} is not in the cached repository",
@@ -398,7 +414,7 @@ def _update_repository(
 
     # If a specific ref was requested, check it out
     if ref:
-        if strict_ref:
+        if strict or strict_ref:
             _checkout_ref(repo_path, ref, git)
         else:
             _try_checkout_and_reset(repo_path, ref, git)
