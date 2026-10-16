@@ -9,16 +9,14 @@ describe('CanvasExtensionsClient', () => {
   });
 
   it('sends exact secret names and revision without credential values', async () => {
-    global.fetch = vi
-      .fn()
-      .mockImplementation(() =>
-        Promise.resolve(
-          new Response(JSON.stringify({ name: 'demo', state: 'stopped' }), {
-            status: 200,
-            headers: { 'content-type': 'application/json' },
-          })
-        )
-      );
+    global.fetch = vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ name: 'demo', state: 'stopped' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+    );
     const client = new CanvasExtensionsClient({ host: 'http://example.com' });
     await client.grantBackendSecrets('demo', 'rev', ['DEMO_API_KEY']);
     await client.revokeBackendSecrets('demo');
