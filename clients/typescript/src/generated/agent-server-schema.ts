@@ -2347,13 +2347,29 @@ export type BackendRevisionRequest = {
  */
 export type BackendStatus = {
   /**
-   * Detail
-   */
-  detail?: string | null;
-  /**
    * Name
    */
   name: string;
+  /**
+   * State
+   */
+  state: 'missing' | 'stopped' | 'starting' | 'ready' | 'unhealthy' | 'unsupported';
+  /**
+   * Revision
+   */
+  revision?: string | null;
+  /**
+   * Prepared Revision
+   */
+  prepared_revision?: string | null;
+  /**
+   * Secret Refs
+   */
+  secret_refs?: Array<string>;
+  /**
+   * Secret Grant Revision
+   */
+  secret_grant_revision?: string | null;
   /**
    * Pid
    */
@@ -2363,17 +2379,9 @@ export type BackendStatus = {
    */
   port?: number | null;
   /**
-   * Prepared Revision
+   * Detail
    */
-  prepared_revision?: string | null;
-  /**
-   * Revision
-   */
-  revision?: string | null;
-  /**
-   * State
-   */
-  state: 'missing' | 'stopped' | 'starting' | 'ready' | 'unhealthy' | 'unsupported';
+  detail?: string | null;
 };
 
 export type BaseWorkspace =
@@ -3423,24 +3431,28 @@ export type BrowserTypeTool = {
  */
 export type CanvasExtensionBackend = {
   /**
-   * Argv
+   * Schema Version
    */
-  argv: Array<string>;
+  schema_version: 1;
   /**
    * Artifacts
    */
   artifacts: {
     [key: string]: CanvasExtensionBackendArtifact;
   };
+  /**
+   * Argv
+   */
+  argv: Array<string>;
   health?: CanvasExtensionBackendHealth;
   /**
    * Inherit Environment
    */
   inherit_environment?: Array<string>;
   /**
-   * Schema Version
+   * Secret Refs
    */
-  schema_version: 1;
+  secret_refs?: Array<string>;
 };
 
 /**
@@ -14157,6 +14169,8 @@ export type UninstallSkillResponse = {
  * Request body for updating canvas extension state (enable/disable).
  */
 export type UpdateCanvasExtensionStateRequest = {
+  revision?: string | null;
+  secret_refs?: string[] | null;
   /**
    * Enabled
    */
@@ -26375,3 +26389,62 @@ export type AddWorkspaceParentsApiWorkspacesParentsPostResponses = {
 
 export type AddWorkspaceParentsApiWorkspacesParentsPostResponse =
   AddWorkspaceParentsApiWorkspacesParentsPostResponses[keyof AddWorkspaceParentsApiWorkspacesParentsPostResponses];
+
+export type BackendSecretGrantRequest = {
+  /**
+   * Revision
+   */
+  revision: string;
+  /**
+   * Secret Refs
+   */
+  secret_refs: Array<string>;
+};
+
+export type GrantCanvasExtensionBackendSecretsEndpointApiCanvasExtensionsInstalledExtensionNameBackendSecretGrantPostData =
+  {
+    body: BackendSecretGrantRequest;
+    path: { extension_name: string };
+    query?: never;
+    url: '/api/canvas-extensions/installed/{extension_name}/backend/secret-grant';
+  };
+
+export type GrantCanvasExtensionBackendSecretsEndpointApiCanvasExtensionsInstalledExtensionNameBackendSecretGrantPostErrors =
+  {
+    422: HttpValidationError;
+  };
+
+export type GrantCanvasExtensionBackendSecretsEndpointApiCanvasExtensionsInstalledExtensionNameBackendSecretGrantPostError =
+  GrantCanvasExtensionBackendSecretsEndpointApiCanvasExtensionsInstalledExtensionNameBackendSecretGrantPostErrors[keyof GrantCanvasExtensionBackendSecretsEndpointApiCanvasExtensionsInstalledExtensionNameBackendSecretGrantPostErrors];
+
+export type GrantCanvasExtensionBackendSecretsEndpointApiCanvasExtensionsInstalledExtensionNameBackendSecretGrantPostResponses =
+  {
+    200: BackendStatus;
+  };
+
+export type GrantCanvasExtensionBackendSecretsEndpointApiCanvasExtensionsInstalledExtensionNameBackendSecretGrantPostResponse =
+  GrantCanvasExtensionBackendSecretsEndpointApiCanvasExtensionsInstalledExtensionNameBackendSecretGrantPostResponses[keyof GrantCanvasExtensionBackendSecretsEndpointApiCanvasExtensionsInstalledExtensionNameBackendSecretGrantPostResponses];
+
+export type RevokeCanvasExtensionBackendSecretsEndpointApiCanvasExtensionsInstalledExtensionNameBackendSecretGrantDeleteData =
+  {
+    body?: never;
+    path: { extension_name: string };
+    query?: never;
+    url: '/api/canvas-extensions/installed/{extension_name}/backend/secret-grant';
+  };
+
+export type RevokeCanvasExtensionBackendSecretsEndpointApiCanvasExtensionsInstalledExtensionNameBackendSecretGrantDeleteErrors =
+  {
+    422: HttpValidationError;
+  };
+
+export type RevokeCanvasExtensionBackendSecretsEndpointApiCanvasExtensionsInstalledExtensionNameBackendSecretGrantDeleteError =
+  RevokeCanvasExtensionBackendSecretsEndpointApiCanvasExtensionsInstalledExtensionNameBackendSecretGrantDeleteErrors[keyof RevokeCanvasExtensionBackendSecretsEndpointApiCanvasExtensionsInstalledExtensionNameBackendSecretGrantDeleteErrors];
+
+export type RevokeCanvasExtensionBackendSecretsEndpointApiCanvasExtensionsInstalledExtensionNameBackendSecretGrantDeleteResponses =
+  {
+    200: BackendStatus;
+  };
+
+export type RevokeCanvasExtensionBackendSecretsEndpointApiCanvasExtensionsInstalledExtensionNameBackendSecretGrantDeleteResponse =
+  RevokeCanvasExtensionBackendSecretsEndpointApiCanvasExtensionsInstalledExtensionNameBackendSecretGrantDeleteResponses[keyof RevokeCanvasExtensionBackendSecretsEndpointApiCanvasExtensionsInstalledExtensionNameBackendSecretGrantDeleteResponses];
