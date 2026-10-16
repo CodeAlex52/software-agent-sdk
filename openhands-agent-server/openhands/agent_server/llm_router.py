@@ -209,7 +209,9 @@ async def get_openai_subscription_status() -> SubscriptionStatusResponse:
     auth = _get_openai_subscription_auth()
     try:
         await auth.refresh_if_needed()
-    except RuntimeError:
+    except (RuntimeError, httpx.HTTPError):
+        # A rejected refresh (RuntimeError) or an unreachable auth.openai.com
+        # (httpx transport error) both leave no usable login right now.
         return SubscriptionStatusResponse(connected=False)
     return _status_from_auth(auth)
 
