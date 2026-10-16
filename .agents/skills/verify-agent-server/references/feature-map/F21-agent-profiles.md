@@ -58,7 +58,7 @@ Routes: `GET /api/agent-profiles`, `GET /api/agent-profiles/{name}`,
 - `F21.busy-blocks-server`: waiting for the profile store lock must not stall the rest of the server; `/alive` keeps answering promptly.
 - `F21.dangling-llm-report`: how materialize reports a dangling LLM reference must match what the server's seed code documents: the documented `dangling_llm_profile_ref` field (the one the launch's 422 carries) is in the materialize body, or the documentation stops promising it.
 - `F21.ts-payload-types`: the TypeScript client's exported `AgentProfileSummary`, `AgentProfileDiagnostics`, `OpenHandsAgentProfile` and `ACPAgentProfile` types accept the payloads the server sends, as its generated contract does: every field the server sends is declared and every required field is sent.
-- `F21.json-suffix-identity`: saving a name that ends in `.json` twice must keep one `id` and bump `revision`, like any other name, and deleting it while active must clear the pointer (or the name must be refused with 422 and nothing stored).
+- `F21.json-suffix-identity`: saving a name that ends in `.json` twice must keep one `id` and bump `revision`, like any other name, and deleting it while active must move the pointer off it (to `default`) (or the name must be refused with 422 and nothing stored).
 
 ## How to get to it (agent POV)
 
@@ -132,7 +132,7 @@ Preconditions:
   and `F21.busy-blocks-server` hold the store lock for about 30 seconds
   each. The three known-bug bullets come last, then
   `F21.json-suffix-identity`, which activates its own profile and ends by
-  deleting it, so the run is left with no active profile.
+  deleting it, so the run is left with `default` active.
 
 ```sh
 control-agent-server llm preset deepseek
@@ -970,20 +970,22 @@ printf -- '---\nname: qa-f21-skill\ndescription: QA F21 user skill\n---\nQA_F21_
       --save F21.json-suffix-identity/after-overwrite
     control-agent-server api GET /api/agent-profiles/qa-f21-suffix.json --check profile.id eq "$J1" --check profile.revision eq 1
     control-agent-server api DELETE /api/agent-profiles/qa-f21-suffix.json --expect 200
-    control-agent-server api GET /api/settings --check active_agent_profile_id missing
+    DEF=$(control-agent-server api GET /api/agent-profiles/default --field profile.id)
+    control-agent-server api GET /api/settings --check active_agent_profile_id ne "$J1" \
+      --check active_agent_profile_id eq "$DEF"
   else
     control-agent-server api POST /api/agent-profiles/qa-f21-suffix.json --json '{"llm_profile_ref": "deepseek-flash"}' --expect 422
     control-agent-server state ls 'home/.openhands/agent-profiles/qa-f21-suffix*' --expect-count 0
   fi
   ```
   The overwrite keeps `J1` and moves to revision 1, and deleting the active
-  profile clears the pointer; or (the `else` branch, for a server that
+  profile moves the pointer off `J1` to `default`; or (the `else` branch, for a server that
   refuses the name) the save is 422 and stores nothing. The arrange steps
   first prove the overwrite landed (the second GET serves `deepseek-pro`).
   The stored and listed name is `qa-f21-suffix` (the file stem), and the
   identity lookup and DELETE compare against that name, so the `.json`
   spelling reaches the same id. This bullet stays last: it leaves the run
-  with no active profile.
+  with `default` active.
 
 ## Gotchas
 
