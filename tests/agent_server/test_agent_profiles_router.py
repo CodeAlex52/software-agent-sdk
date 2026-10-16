@@ -317,23 +317,72 @@ def test_llm_has_real_config(llm, expected):
     assert router_module._llm_has_real_config(llm) is expected
 
 
-def test_no_seed_when_store_nonempty(client, store):
-    """A non-empty store is never seeded."""
+def _ids(body: dict) -> dict[str, str]:
+    return {p["name"]: p["id"] for p in body["profiles"]}
+
+
+def test_without_an_active_profile_a_seeded_default_is_activated(client, store):
     store.save(OpenHandsAgentProfile(name="mine", llm_profile_ref="x"))
 
     body = client.get("/api/agent-profiles").json()
-    names = {p["name"] for p in body["profiles"]}
-    assert names == {"mine"}
-    assert body["active_agent_profile_id"] is None
+
+    assert set(_ids(body)) == {"mine", "default"}
+    assert body["active_agent_profile_id"] == _ids(body)["default"]
 
 
-def test_no_seed_when_pointer_set_but_store_empty(client, store):
-    """An empty store with a non-null pointer is left as-is (no seed, no error).
+def test_an_existing_default_is_activated_rather_than_reseeded(client, store):
+    store.save(OpenHandsAgentProfile(name="default", llm_profile_ref="kept"))
+    store.save(OpenHandsAgentProfile(name="mine", llm_profile_ref="x"))
 
-    A stale pointer (e.g. after a failed delete) reflects user state, so the
-    seed condition deliberately requires both an empty store *and* a null
-    pointer.
-    """
+    body = client.get("/api/agent-profiles").json()
+
+    assert set(_ids(body)) == {"mine", "default"}
+    assert body["active_agent_profile_id"] == _ids(body)["default"]
+    assert store.load("default").llm_profile_ref == "kept"
+
+
+def test_a_full_store_without_default_activates_an_existing_profile(
+    client, store, monkeypatch
+):
+    monkeypatch.setattr(router_module, "MAX_AGENT_PROFILES", 2)
+    store.save(OpenHandsAgentProfile(name="beta", llm_profile_ref="x"))
+    store.save(OpenHandsAgentProfile(name="alpha", llm_profile_ref="x"))
+
+    response = client.get("/api/agent-profiles")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(_ids(body)) == {"alpha", "beta"}
+    assert body["active_agent_profile_id"] == _ids(body)["alpha"]
+
+
+def test_a_corrupt_default_is_kept_and_another_profile_activated(
+    client, store, temp_agent_profiles_dir
+):
+    corrupt = temp_agent_profiles_dir / "default.json"
+    corrupt.write_text("{ not valid json")
+    store.save(OpenHandsAgentProfile(name="mine", llm_profile_ref="x"))
+
+    response = client.get("/api/agent-profiles")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["active_agent_profile_id"] == _ids(body)["mine"]
+    assert corrupt.read_text() == "{ not valid json"
+
+
+def test_a_corrupt_default_alone_leaves_no_profile_active(
+    client, temp_agent_profiles_dir
+):
+    (temp_agent_profiles_dir / "default.json").write_text("{ not valid json")
+
+    response = client.get("/api/agent-profiles")
+
+    assert response.status_code == 200
+    assert response.json() == {"profiles": [], "active_agent_profile_id": None}
+
+
+def test_a_dangling_pointer_moves_to_a_seeded_default(client, store):
     # PATCH /api/settings refuses unknown ids (#5847), so activate a real
     # profile and then remove its file out of band.
     profile = OpenHandsAgentProfile(name="gone", llm_profile_ref="x")
@@ -343,8 +392,9 @@ def test_no_seed_when_pointer_set_but_store_empty(client, store):
     (store.base_dir / "gone.json").unlink()
 
     body = client.get("/api/agent-profiles").json()
-    assert body["profiles"] == []
-    assert body["active_agent_profile_id"] == stale
+
+    assert set(_ids(body)) == {"default"}
+    assert body["active_agent_profile_id"] == _ids(body)["default"]
 
 
 def test_concurrent_first_list_seeds_once(client, store):
@@ -595,8 +645,7 @@ def test_delete_idempotent(client):
     assert response.status_code == 200
 
 
-def test_delete_clears_active_pointer(client, store):
-    """Deleting the active profile clears active_agent_profile_id."""
+def test_deleting_the_active_profile_activates_default(client, store):
     store.save(OpenHandsAgentProfile(name="active-one", llm_profile_ref="x"))
     profile_id = client.get("/api/agent-profiles/active-one").json()["profile"]["id"]
     client.post(f"/api/agent-profiles/{profile_id}/activate")
@@ -604,7 +653,19 @@ def test_delete_clears_active_pointer(client, store):
 
     client.delete("/api/agent-profiles/active-one")
 
-    assert client.get("/api/settings").json()["active_agent_profile_id"] is None
+    default_id = client.get("/api/agent-profiles/default").json()["profile"]["id"]
+    assert client.get("/api/settings").json()["active_agent_profile_id"] == default_id
+
+
+def test_deleting_an_active_default_reseeds_it(client):
+    seeded = client.get("/api/agent-profiles").json()
+    old_id = seeded["active_agent_profile_id"]
+
+    client.delete("/api/agent-profiles/default")
+
+    body = client.get("/api/agent-profiles").json()
+    assert set(_ids(body)) == {"default"}
+    assert body["active_agent_profile_id"] == _ids(body)["default"] != old_id
 
 
 def test_delete_active_acp_profile_resets_agent_settings(client, store):
@@ -653,7 +714,7 @@ def test_delete_active_acp_profile_resets_agent_settings(client, store):
 
     # Verify the fix: agent_settings is reset to default (agent_kind="openhands")
     settings_after = client.get("/api/settings").json()
-    assert settings_after["active_agent_profile_id"] is None
+    assert settings_after["active_agent_profile_id"] not in (None, profile_id)
     assert settings_after["agent_settings"]["agent_kind"] == "openhands"
     # Verify ACP-specific fields are cleared
     assert settings_after["agent_settings"].get("acp_server") is None
@@ -684,7 +745,7 @@ def test_delete_active_openhands_profile_does_not_reset_agent_settings(client, s
 
     # Verify pointer is cleared but agent_settings unchanged (still openhands)
     settings_after = client.get("/api/settings").json()
-    assert settings_after["active_agent_profile_id"] is None
+    assert settings_after["active_agent_profile_id"] not in (None, profile_id)
     assert settings_after["agent_settings"] == agent_settings_before
 
 
@@ -975,10 +1036,10 @@ def test_seed_preserves_acp_fields(client):
 
 
 def test_list_timeout_returns_503(client, monkeypatch):
-    def boom(self):
+    def boom(self, timeout=0):
         raise TimeoutError("locked")
 
-    monkeypatch.setattr(AgentProfileStore, "list", boom)
+    monkeypatch.setattr(AgentProfileStore, "lock", boom)
     response = client.get("/api/agent-profiles")
     assert response.status_code == 503
 
