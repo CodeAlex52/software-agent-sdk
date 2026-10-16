@@ -484,7 +484,7 @@ Preconditions:
   control-agent-server exec --run "$PREFIXED" --save F02.workspace-cookie-root-path/mint -- bash "$F02/jar.sh" POST /qa-f02-prefix/api/auth/workspace-session key 204
   grep -q oh_workspace_session_key "$PREFIXED/fixtures/qa-f02-cookies.txt"
   control-agent-server exec --run "$PREFIXED" -- bash "$F02/jar.sh" GET "/api/conversations/$PCID/workspace/qa-f02.html" nokey 200 'has:qa-f02-workspace-file'
-  control-agent-server exec --run "$PREFIXED" --save F02.workspace-cookie-root-path/file-with-cookie -- bash "$F02/jar.sh" GET "/qa-f02-prefix/api/conversations/$PCID/workspace/qa-f02.html" nokey 200 'has:qa-f02-workspace-file'  # bug
+  control-agent-server exec --run "$PREFIXED" --save F02.workspace-cookie-root-path/file-with-cookie -- bash "$F02/jar.sh" GET "/qa-f02-prefix/api/conversations/$PCID/workspace/qa-f02.html" nokey 200 'has:qa-f02-workspace-file'  # bug: exit_code eq 1 && stdout_tail contains status=401
   control-agent-server stop --run "$PREFIXED"
   ```
   The server advertises `servers: [{"url": "/qa-f02-prefix"}]` and serves
@@ -497,7 +497,7 @@ Preconditions:
   not send it and the file is 401. The TypeScript client's
   `startWorkspaceSession()` returns `${host}/api/conversations/{id}/workspace/`,
   which carries the prefix whenever `host` does.
-- **IPv6 loopback is not a secure context (`F02.workspace-session-ipv6-loopback`), known bug.**
+- **IPv6 loopback is a secure context (`F02.workspace-session-ipv6-loopback`).**
   Mint as browsers at the IPv4 loopback names would, then as a browser at
   `http://[::1]:PORT` would.
   ```sh
@@ -506,15 +506,14 @@ Preconditions:
   control-agent-server api POST /api/auth/workspace-session --header 'Host: localhost:8000' --expect 204 \
     --check-header set-cookie contains Secure --check-header set-cookie contains Partitioned
   control-agent-server api POST /api/auth/workspace-session --header 'Host: [::1]:8000' --expect 204 --save F02.workspace-session-ipv6-loopback/ipv6-host \
-    --check-header set-cookie contains SameSite=none --check-header set-cookie contains Secure --check-header set-cookie contains Partitioned  # bug
+    --check-header set-cookie contains SameSite=none --check-header set-cookie contains Secure --check-header set-cookie contains Partitioned
   ```
-  `127.0.0.1` and `localhost` get `Secure; Partitioned`. Expected: the
-  `Host: [::1]:8000` mint gets them too, since `::1` is in the server's
-  loopback list. Today it gets `SameSite=none` without `Secure`, which
-  browsers reject, so workspace embeds fail for a client at
-  `http://[::1]:PORT`: `_request_is_secure_context` handles brackets only in
-  `X-Forwarded-Host`, and splits the unbracketed `request.url.hostname`
-  (`::1`) on `:`, leaving an empty host.
+  `127.0.0.1`, `localhost` and the `Host: [::1]:8000` mint all get
+  `SameSite=none; Secure; Partitioned`, since `::1` is in the server's
+  loopback list, so workspace embeds work for a client at
+  `http://[::1]:PORT`. `request.url.hostname` returns the IPv6 address
+  unbracketed (`::1`), so `_request_is_secure_context` strips a `:port`
+  suffix only from a bracketed host or a host with a single colon.
 
 ## Gotchas
 

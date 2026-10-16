@@ -293,7 +293,7 @@ Preconditions:
   The repository is cloned into `cache/extensions/qa-f26-src-<hash>`, the
   plugin subdirectory alone is copied into the store, and the record keeps
   the source, `repo_path` and the commit (`H1`); no ref was requested.
-- **Repository root name (`F26.install-repo-root-name`), known bug.**
+- **Repository root name (`F26.install-repo-root-name`).**
   Install the whole fixture repository (it has no plugin manifest at its
   root), remove it, then compare the name.
   ```sh
@@ -301,14 +301,13 @@ Preconditions:
     --check resolved_ref eq "$H1" --save F26.install-repo-root-name/install --field name)
   control-agent-server api DELETE "/api/plugins/installed/$N" --expect 200
   control-agent-server api GET "/api/plugins/installed/$N" --expect 404
-  test "$N" = qa-f26-src  # bug
+  control-agent-server assert --value "$N" --check . eq qa-f26-src
   ```
   A manifest-less directory takes its directory's name, so the repository
-  should install as `qa-f26-src`. Today it installs as
-  `qa-f26-src-<16 hex>`: the name is inferred from the server's cache
-  directory (`get_cache_path` appends a hash of the URL), so the same
-  repository gets another name under another URL spelling. The install is
-  removed before the comparison, so later bullets do not see it.
+  installs as `qa-f26-src`, the repository's name, never as its
+  `qa-f26-src-<hash>` cache directory: the name does not depend on how the
+  URL is spelled. The install is removed before the comparison, so later
+  bullets do not see it.
 - **Duplicate install (`F26.install-conflict`).** Install the same plugin
   again, then force it while it is disabled.
   ```sh
@@ -330,7 +329,7 @@ Preconditions:
   ```sh
   control-agent-server api POST /api/plugins/install --json '{"source": "'"$F/qa-f26-missing"'"}' --expect 400 \
     --check detail eq 'Failed to fetch plugin source. Check that the source is valid.' --save F26.install-errors/missing-path
-  control-agent-server api POST /api/plugins/install --json '{"source": "github:qa/f26/extra"}' --expect 400
+  control-agent-server api POST /api/plugins/install --json '{"source": "github:qa"}' --expect 400
   control-agent-server api POST /api/plugins/install --json '{"source": "qa-f26-not-a-source"}' --expect 400
   control-agent-server api POST /api/plugins/install --json '{"source": "file://'"$F/qa-f26-no-repo"'"}' --expect 400
   control-agent-server api POST /api/plugins/install --json '{"source": "file://'"$G"'", "repo_path": "plugins/qa-f26-missing"}' --expect 400
@@ -346,9 +345,8 @@ Preconditions:
   control-agent-server api GET /api/plugins/installed --expect 200 --check plugins len-eq 3 --save F26.install-errors/after
   test "$(find "$I" -mindepth 1 -maxdepth 1 | wc -l)" -eq 4
   ```
-  A missing path, a GitHub shorthand with a subpath (rejected by the parser
-  without any network call; the documented example has the same shape, see
-  `F26.install-documented-source`), an unparsable source, a `file://` URL
+  A missing path, a GitHub shorthand without a repository (rejected by the
+  parser without any network call), an unparsable source, a `file://` URL
   that is not a repository, a missing `repo_path` and a `repo_path` that
   climbs out of the repository are all `400 Failed to fetch plugin source`. Invalid JSON in `.plugin/plugin.json`, a manifest-less
   directory named `Qa_Plugin`, a manifest name `Bad_Name` and a manifest
@@ -375,7 +373,7 @@ Preconditions:
   `plugins/city-weather` is copied into the store, with the commit it was
   installed at. Without network the install is `400 Failed to fetch plugin
   source`. The plugin is removed so later bullets see the same store.
-- **Documented install source (`F26.install-documented-source`), known bug.**
+- **Documented install source (`F26.install-documented-source`).**
   Install the public plugin in the working form first (the positive control:
   this server reaches GitHub now), then in the GitHub form the OpenAPI
   description of `InstallPluginRequest.source` advertises (network).
@@ -387,20 +385,18 @@ Preconditions:
   case "$DOC" in
     *"'github:OpenHands/extensions/plugins/city-weather'"*)
       control-agent-server api POST /api/plugins/install --json '{"source": "github:OpenHands/extensions/plugins/city-weather"}' \
-        --timeout 240 --expect 200 --check name eq city-weather --save F26.install-documented-source/documented  # bug
+        --timeout 240 --expect 200 --check name eq city-weather --save F26.install-documented-source/documented
       control-agent-server api DELETE /api/plugins/installed/city-weather --expect 200
       ;;
   esac
   ```
   The working form (`github:OpenHands/extensions` plus `repo_path`, as in
   `F26.install-github`) installs and is removed again, so GitHub is
-  reachable from this server at this moment; the documented example should
-  install too (or stop being documented, which also passes this bullet).
-  Today it is `400 Failed to fetch plugin source` with no network call:
-  `parse_extension_source` accepts only `github:owner/repo` (one slash). The
-  same text ships in the TypeScript client's generated schema. Without
-  network the positive control fails first, so the bullet reports `fail`,
-  not `xfail`.
+  reachable from this server at this moment; the documented example
+  `github:OpenHands/extensions/plugins/city-weather` installs the same plugin:
+  the shorthand clones `OpenHands/extensions` and uses the rest as
+  `repo_path` (passing both is a `400`). Without network the positive
+  control fails first, so the bullet reports `fail`.
 - **Enable and disable (`F26.enable-disable`).** Disable the plugin, read it
   back everywhere, then enable it again.
   ```sh
@@ -529,11 +525,11 @@ Preconditions:
   control-agent-server api GET /api/plugins/installed/qa-f26-adopted --expect 200 --check source eq local
   rm -rf "$F/tmp/qa-f26-gone"
   printf '{bad json' > "$F/tmp/qa-f26-broken/.plugin/plugin.json"
-  control-agent-server api POST /api/plugins/installed/qa-f26-gone/refresh --expect 400,422 --save F26.refresh-unfetchable/vanished  # bug
+  control-agent-server api POST /api/plugins/installed/qa-f26-gone/refresh --expect 400,422 --save F26.refresh-unfetchable/vanished  # bug: status eq 500 && response.body.exception contains 'Local extension path does not exist'
   control-agent-server api GET /api/plugins/installed/qa-f26-gone --expect 200 --check enabled eq true
-  control-agent-server api POST /api/plugins/installed/qa-f26-broken/refresh --expect 422 --save F26.refresh-unfetchable/invalid  # bug
+  control-agent-server api POST /api/plugins/installed/qa-f26-broken/refresh --expect 422 --save F26.refresh-unfetchable/invalid  # bug: status eq 500 && response.body.exception contains 'Invalid JSON'
   control-agent-server api GET /api/plugins/installed/qa-f26-broken --expect 200 --check version eq 0.1.0
-  control-agent-server api POST /api/plugins/installed/qa-f26-adopted/refresh --expect 400,422 --save F26.refresh-unfetchable/local  # bug
+  control-agent-server api POST /api/plugins/installed/qa-f26-adopted/refresh --expect 400,422 --save F26.refresh-unfetchable/local  # bug: status eq 500 && response.body.exception contains 'Unable to parse extension source'
   control-agent-server api GET /api/plugins/installed/qa-f26-adopted --expect 200 --check source eq local
   ```
   The install route answers an unfetchable source with 400 and an invalid
@@ -646,9 +642,9 @@ Preconditions:
   control-agent-server ws read qa-f26-resume --kinds MessageEvent --contains '"text": "/qa-f26-inst:qa-hello"' --expect-min 1 --wait 30
   control-agent-server ws read qa-f26-resume --kinds HookExecutionEvent --contains QA_F26_INST_HOOK --expect-none
   control-agent-server ws stop qa-f26-resume --kinds MessageEvent --contains '"activated_skills": ["qa-f26-inst:qa-hello"]' --expect-none \
-    --save F26.conversation-resume-disabled/frames  # bug
+    --save F26.conversation-resume-disabled/frames  # bug: matching ge 1
   control-agent-server api GET "/api/conversations/$CIDR" --query include_skills=true --expect 200 \
-    --check agent.agent_context.skills not-contains qa-f26-inst --save F26.conversation-resume-disabled/conversation  # bug
+    --check agent.agent_context.skills not-contains qa-f26-inst --save F26.conversation-resume-disabled/conversation  # bug: status eq 200 && response.body.agent.agent_context.skills contains qa-f26-inst
   ```
   The conversation loaded the plugin before it was disabled (its hook ran
   for the prompt). Ambient plugins are not pinned to a conversation; on
@@ -831,7 +827,8 @@ Preconditions:
   The user directories are `~/.agents/plugins` and `$OH_PERSISTENCE_DIR/plugins`
   (the `installed/` child is skipped). All of these are fixed at import.
 - The Claude Code layout is the fallback for any directory: a directory
-  without a manifest installs under its own name with version `1.0.0`, and
+  without a manifest installs under its own name (a git repository root
+  under the repository's name) with version `1.0.0`, and
   the whole directory is copied (a git source without `repo_path` copies the
   clone including `.git`, which `files` hides). Never install a large
   directory such as `/tmp` to test this.

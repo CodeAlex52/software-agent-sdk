@@ -31,7 +31,7 @@ Routes: `GET /api/file/home`, `GET /api/file/search_subdirs`,
 - `F14.auth`: every global and conversation-scoped file route answers 401 without a valid session key, and nothing is written.
 - `F14.upload-download`: a multipart upload creates missing parent directories, a download returns byte-identical bytes as an `application/octet-stream` attachment named after the basename, and a second upload to the same path replaces the content.
 - `F14.upload-errors`: an upload without the `file` part or without `path` is 422, and a relative `path` is 400 `Path must be absolute`.
-- `F14.upload-onto-directory`: uploading onto an existing directory, or to a path whose parent is a file, is a client error (4xx); today it is a masked 500.
+- `F14.upload-onto-directory`: uploading onto an existing directory, or to a path whose parent is a file, is a client error (400), as `create_directory` answers for the same collisions.
 - `F14.upload-size`: the SDK's `RemoteWorkspace.file_upload` and the TypeScript `RemoteWorkspace.fileUpload` report the uploaded `file_size`, as `LocalWorkspace.file_upload` does; today the server sends only `{"success": true}` and both report no size.
 - `F14.upload-atomic`: an overwrite that fails mid-write leaves the previous file intact; today the target is truncated before streaming and keeps a partial file.
 - `F14.download-errors`: downloading a missing file is 404 `File not found`, a directory 400 `Path is not a file`, a relative path 400.
@@ -186,23 +186,22 @@ Preconditions:
   ```
   A missing `file` part (or one sent under another field name) and a missing
   `path` are 422 with the missing location; a relative path is 400.
-- **Upload onto a directory (`F14.upload-onto-directory`), known bug.** The
-  caller's path is wrong, which `create_directory` reports as 400 for the
-  same collision; each of the two uploads alone encodes the bug.
+- **Upload onto a directory (`F14.upload-onto-directory`).** The caller's
+  path is wrong, which `create_directory` reports as 400 for the same
+  collision.
   ```sh
   mkdir -p "$F/xfer/is-a-dir"
   control-agent-server api POST /api/file/create_directory --query path="$F/v2.txt/child" --expect 400 \
     --check detail eq 'Path exists and is not a directory'
   control-agent-server api POST /api/file/upload --query path="$F/xfer/is-a-dir" --file file="$F/v2.txt" \
-    --expect 4xx --save F14.upload-onto-directory/upload  # bug
+    --expect 400 --check detail eq 'Path is a directory' --save F14.upload-onto-directory/upload
   control-agent-server api POST /api/file/upload --query path="$F/v2.txt/child" --file file="$F/v2.txt" \
-    --expect 4xx --save F14.upload-onto-directory/parent-is-file  # bug
+    --expect 400 --check detail eq 'A parent of the path is not a directory' --save F14.upload-onto-directory/parent-is-file
+  test -d "$F/xfer/is-a-dir"
   ```
-  Expected: a 4xx such as 400 `Path exists and is not a directory`, as
-  `create_directory` answers for the same collisions. Actual:
-  `500 {"detail": "Internal Server Error", "exception": "500: Failed to upload file: [Errno 21] Is a directory: ..."}`
-  (`_upload_file` maps every exception to 500). A path whose parent is a file
-  (`$F/v2.txt/child`) fails the same way (`[Errno 17] File exists`).
+  Uploading onto an existing directory is 400 `Path is a directory`, and a path
+  whose parent is a file (`$F/v2.txt/child`) is 400 `A parent of the path is
+  not a directory`; neither touches what is already there.
 - **Upload size in the consumers' result (`F14.upload-size`), known bug.**
   The same 70 kB blob through `LocalWorkspace.file_upload` (the contract the
   remote workspaces mirror), the SDK's `RemoteWorkspace.file_upload` and the
@@ -253,8 +252,8 @@ Preconditions:
   control-agent-server exec --expect-output TS_UPLOAD_OK --save F14.upload-size/ts -- node "$F/ts_size.mjs" "$F"
   control-agent-server api POST /api/file/upload --query path="$F/size/rest.bin" --file file="$F/blob.bin" --expect 200 \
     --check success eq true --save F14.upload-size/rest
-  test "$(cat "$F/sdk-size.txt")" = 70000  # bug
-  test "$(cat "$F/ts-size.txt")" = 70000  # bug
+  control-agent-server assert --value "$(cat "$F/sdk-size.txt")" --check . eq 70000  # bug: value eq None
+  control-agent-server assert --value "$(cat "$F/ts-size.txt")" --check . eq 70000  # bug: value eq undefined
   ```
   Expected: both remote workspaces report `file_size` 70000, as
   `LocalWorkspace` does. Actual: every upload lands intact, but the server
@@ -283,7 +282,7 @@ Preconditions:
     --expect 5xx --check exception contains 'File too large' --save F14.upload-atomic/failed-overwrite
   prlimit --pid "$B2_PID" --fsize=unlimited:
   control-agent-server doctor --run "$B2"
-  cmp "$F/v2.txt" "$AT/target.txt"  # bug
+  control-agent-server assert --value "{\"same\": $(cmp -s "$F/v2.txt" "$AT/target.txt" && echo true || echo false), \"size\": $(wc -c < "$AT/target.txt")}" --check same eq true  # bug: value.same eq false && value.size eq 500000
   ```
   Without the limit the 900 kB blob uploads intact (so the size alone is not
   the problem) and the small file is in place. Under the limit the overwrite
@@ -399,7 +398,7 @@ Preconditions:
   test "$CASE_FIRST" = Foo -o "$CASE_FIRST" = foo
   control-agent-server api GET /api/file/search_subdirs --query path="$CASE_DIR" --query limit=1 --query page_id="$CASE_NEXT" \
     --expect 200 --check items len-eq 1 --check items.0.name eq "$CASE_OTHER" --check next_page_id missing \
-    --save F14.subdirs-case-pagination/page-2  # bug
+    --save F14.subdirs-case-pagination/page-2  # bug: status eq 200 && response.body.next_page_id eq foo && checks.1.ok eq false
   ```
   Page one holds one twin and a cursor. Expected: page two holds exactly the
   other twin and no cursor. Actual: the cursor is `foo`, the lowercase name,
@@ -593,7 +592,8 @@ Preconditions:
     --raw-out "$F/doc-parent.tgz" --save F14.archive-format-doc/tar
   tar tzf "$F/doc-parent.tgz" > "$F/doc-parent.list"
   grep -q 'proj/notes.txt$' "$F/doc-parent.list"
-  if printf '%s\n' "$DOC_FORMAT" | grep -q 'entire directory' && test -z "$(grep 'top.txt' "$F/doc-parent.list")"; then false; fi  # bug
+  jq -n --arg doc "$DOC_FORMAT" --rawfile list "$F/doc-parent.list" '{doc_entire_directory: ($doc | contains("entire directory")), tar_has_top: ($list | contains("top.txt"))} | .agree = (.tar_has_top or (.doc_entire_directory | not))' \
+    | control-agent-server assert --check agree eq true  # bug: value.doc_entire_directory eq true && value.tar_has_top eq false
   ```
   Expected: the description and the archive agree, either by documenting
   that a directory holding exactly one repository archives only that
@@ -674,7 +674,8 @@ Preconditions:
   SH
   control-agent-server exec --env CID="$CID" --env CC="$CC" --save F14.trajectory-concurrent/burst -- sh "$CC/burst.sh"
   test -s "$CC/1-6.status"
-  for s in "$CC"/[1-5]-[1-6].status; do test "$(cat "$s")" = 200; test -s "${s%.status}.zip"; python3 -m zipfile -t "${s%.status}.zip" > /dev/null; done  # bug
+  BROKEN=$(for s in "$CC"/[1-5]-[1-6].status; do n=$(basename "$s" .status); z="${s%.status}.zip"; c=$(cat "$s"); if [ "$c" != 200 ]; then echo "$n:$c"; elif ! test -s "$z"; then echo "$n:200-empty"; elif ! python3 -m zipfile -t "$z" > /dev/null 2>&1; then echo "$n:200-badzip"; fi; done)
+  control-agent-server assert --value="$BROKEN" --check . eq ''  # bug: value matches ':(500|200-empty|200-badzip)'
   ```
   A single download is a valid zip. Expected: every concurrent download is
   200 with a valid zip, in all five rounds. Actual: every handler writes the
@@ -846,9 +847,9 @@ Preconditions:
   BCID=$(control-agent-server conversation start --run "$B" --tools file_editor --no-autotitle --print-id)
   test -d "$BP/$(printf '%s' "$BCID" | tr -d -)"
   control-agent-server api GET "/api/conversations/$BCID" --run "$B" --expect 200 --check id eq "$BCID"
-  control-agent-server api GET "/api/file/download-trajectory/$BCID" --run "$B" --expect 200 --save F14.trajectory-init-path/global  # bug
+  control-agent-server api GET "/api/file/download-trajectory/$BCID" --run "$B" --expect 200 --save F14.trajectory-init-path/global  # bug: status eq 404 && response.body.detail eq 'Conversation not found'
   control-agent-server api GET "/api/conversations/$BCID/file/download-trajectory/$BCID" --run "$B" --expect 200 \
-    --save F14.trajectory-init-path/scoped  # bug
+    --save F14.trajectory-init-path/scoped  # bug: status eq 404 && response.body.detail eq 'Conversation not found'
   ```
   The conversation is persisted under the init-time path and `GET` finds it.
   Expected: both trajectory routes return the zip (each alone encodes the

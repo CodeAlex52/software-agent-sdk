@@ -43,7 +43,7 @@ Routes: `GET /api/tools/`, `GET /api/tools/catalog`, `POST /api/sub-agents`,
 - `F27.subagents-user`: user agents from `~/.agents/agents` and `$OH_PERSISTENCE_DIR/agents` are listed with `level: user` only while `load_user` is on, and `load_project: false` hides the project's agents.
 - `F27.subagents-precedence`: names are unique and the first source wins: a project agent shadows the built-in and the user agent of the same name, and `.agents/agents` shadows `.openhands/agents`.
 - `F27.subagents-invalid`: definitions that do not validate (bad `permission_mode`, `max_iteration_per_run: 0`) are skipped with a logged warning, and `README.md`, subdirectories and non-`.md` files are ignored, while the request still answers 200.
-- `F27.subagents-bad-skill`: a project agent whose `skills` names a skill that does not exist should not break conversations in that workspace; today the catalog lists it as valid and a message to such a conversation is a 500.
+- `F27.subagents-bad-skill`: a project agent whose `skills` names a skill that does not exist does not break conversations in that workspace: the catalog lists it (it validates frontmatter only), and the conversation skips it with a logged warning and accepts every message.
 - `F27.catalog-sealed`: a client tool registered by a conversation (`client_tools`) is part of that conversation's agent but never enters the catalog, which is sealed at startup.
 - `F27.client-tool-call`: when the agent calls a client tool, the events socket delivers a `ClientAction_<name>` `ActionEvent` with the model's arguments, the server answers it with the `Tool call dispatched to client.` acknowledgment and the run finishes; the tool is registered again when the conversation resumes after a restart; a duplicate name in one request, a name that collides with `terminal` and a reused name with a different schema are each 422 and create nothing, while the same name with the same schema is accepted.
 - `F27.agent-definitions`: `agent_definitions` in the create request make that sub-agent available to the conversation's task tool, which delegates to it by name (the delegate runs the command, the `TaskObservation` names it); the definition is stored with the conversation and is not listed by `POST /api/sub-agents`.
@@ -54,9 +54,9 @@ Routes: `GET /api/tools/`, `GET /api/tools/catalog`, `POST /api/sub-agents`,
 - `F27.browser-probe`: without a Chromium the server can find, the catalog reports `browser_tool_set` unusable and `/server_info` `usable_tools` leaves it out; with a Playwright Chromium in the server's `~/.cache/ms-playwright` and a restart, the catalog reports it usable and `usable_tools` lists it.
 - `F27.browser-disabled-launch`: a conversation started from the saved settings (default tools) gets `browser_tool_set` while the server finds Chromium, and leaves it out after a restart with `enable_browser: false`; a conversation created before keeps its stored tools.
 - `F27.browser-disabled`: with `enable_browser: false` the catalog reports `browser_tool_set` unusable although Chromium is present, while `GET /api/tools/` still lists it.
-- `F27.server-info-browser-disabled`: with `enable_browser: false`, `/server_info` `usable_tools` should agree with the catalog and leave out `browser_tool_set`; today it still lists it.
-- `F27.subagents-browser-disabled`: with `enable_browser: false`, the sub-agents catalog should leave out the browser-only `web-researcher`; today it still lists it.
-- `F27.catalog-docker-runtime`: with `conversation_runtime: docker` the catalog probes nothing in the server process: `browser_tool_set` is usable for the stock image although the server finds no Chromium, and unusable for a `-minimal` image tag or with `conversation_image_has_browser: false`.
+- `F27.server-info-browser-disabled`: with `enable_browser: false`, `/server_info` `usable_tools` agrees with the catalog and leaves out `browser_tool_set`, although Chromium is present.
+- `F27.subagents-browser-disabled`: with `enable_browser: false`, the sub-agents catalog leaves out the browser-only `web-researcher` and keeps the other built-ins.
+- `F27.catalog-docker-runtime`: with `conversation_runtime: docker` the catalog probes nothing in the server process: `browser_tool_set` is usable for the stock image although the server finds no Chromium, and unusable for a `-minimal` image tag or with `conversation_image_has_browser: false`; `/server_info` `usable_tools` follows it for the browser.
 
 ## How to get to it (agent POV)
 
@@ -374,7 +374,7 @@ Preconditions:
   control-agent-server api POST /api/sub-agents --json '{"load_user": false, "load_project": false, "load_builtin": false}' \
     --expect 200 --check agents len-eq 0
   ```
-  Four built-ins in file order, all `level: builtin` with their bundled
+  Four built-ins in file order (the browser is enabled), all `level: builtin` with their bundled
   source file; `web-researcher` needs `browser_tool_set` and an MCP fetch
   server. A `project_dir` that does not exist is not an error and adds
   nothing. Without built-ins the list is empty.
@@ -442,9 +442,9 @@ Preconditions:
   `Failed to load agent definition from ...` warnings to the log, one per
   invalid file (the file name wraps onto the next log line). Every earlier
   request that read the project logged them too, hence the count from `W0`.
-- **Agent with a missing skill (`F27.subagents-bad-skill`), known bug.** The
-  catalog accepts the agent; a conversation in that workspace cannot take a
-  message.
+- **Agent with a missing skill (`F27.subagents-bad-skill`).** The catalog
+  accepts the agent; a conversation in that workspace skips it and takes
+  messages.
   ```sh
   control-agent-server api POST /api/sub-agents --json '{"load_user": false, "load_builtin": false, "project_dir": "'"$F/badskill"'"}' \
     --expect 200 --check agents len-eq 1 --check agents.0.name eq qa-bad-skill --check agents.0.skills.0 eq qa-f27-missing-skill
@@ -453,22 +453,17 @@ Preconditions:
     --json '{"role": "user", "content": [{"type": "text", "text": "hi"}], "run": false}' --expect 2xx \
     --save F27.subagents-bad-skill/send-control
   BCID=$(control-agent-server conversation start --workspace "$F/badskill" --no-run --tools terminal --no-autotitle --print-id)
-  control-agent-server api POST "/api/conversations/$BCID/events" --json '{"role": "user", "content": [{"type": "text", "text": "hi"}], "run": false}' --expect 2xx,4xx --save F27.subagents-bad-skill/send  # bug
+  control-agent-server api POST "/api/conversations/$BCID/events" --json '{"role": "user", "content": [{"type": "text", "text": "hi"}], "run": false}' --expect 2xx --save F27.subagents-bad-skill/send
+  control-agent-server api POST "/api/conversations/$BCID/events" --json '{"role": "user", "content": [{"type": "text", "text": "again"}], "run": false}' --expect 2xx --save F27.subagents-bad-skill/send-again
+  control-agent-server logs --grep 'Skipping file-based agent' --expect-min 1
   ```
   The same message to a conversation in a workspace without project agents
-  is accepted (the control). A broken sub-agent definition should cost only
-  that sub-agent (skipped with a warning, as invalid frontmatter is) or be a
-  client error naming it.
-  Today the message `POST` is `500` with `Skill 'qa-f27-missing-skill' not
-  found but was given to agent 'qa-bad-skill'.`: the conversation registers
-  every project and user agent file on its first message and
-  `agent_definition_to_factory` raises for a skill it cannot resolve. With an
-  `initial_message` in the create request, `POST /api/conversations` itself
-  is the 500, and the conversation is stored anyway (it is listed, `idle`).
-  User agents (`~/.agents/agents`) are registered for every workspace: the
-  same file there made the first message of a conversation in an unrelated
-  workspace a 500 when this bullet was reviewed (not driven here, because a
-  failing bullet would leave the file behind for the later conversations).
+  is accepted (the control). The conversation registers every project and
+  user agent file on its first message; a definition that cannot be
+  registered (here `Skill 'qa-f27-missing-skill' not found but was given to
+  agent 'qa-bad-skill'.`) costs only that sub-agent: it is skipped with a
+  `Skipping file-based agent ...` warning naming its file (the agent name
+  wraps onto the next log line), and the other agents register. Plugin agents are skipped the same way.
 - **Hooks in a conversation (`F27.hooks-conversation`).** Load the project's
   hooks, start a DeepSeek conversation with them, and look for the hook.
   ```sh
@@ -745,9 +740,9 @@ Preconditions:
   W0=$(control-agent-server logs --grep 'Failed to import module' | jq -r .total_matching)
   control-agent-server restart --reset-config
   control-agent-server api GET "/api/conversations/$MCID" --expect 200 --check tool_module_qualnames.qa_f27_echo eq qa_f27_tools --quiet
-  control-agent-server api POST "/api/conversations/$MCID/events" --json '{"role": "user", "content": [{"type": "text", "text": "Reply with the single word ok."}], "run": false}' --expect 2xx,4xx --save F27.custom-tool-missing-on-resume/send  # bug
+  control-agent-server api POST "/api/conversations/$MCID/events" --json '{"role": "user", "content": [{"type": "text", "text": "Reply with the single word ok."}], "run": false}' --expect 2xx,4xx --save F27.custom-tool-missing-on-resume/send  # bug: status eq 500 && response.body.exception contains "Unknown kind 'QaF27EchoObservation'"
   control-agent-server logs --grep 'Failed to import module' --expect-min "$((W0 + 1))"
-  control-agent-server api GET "/api/conversations/$MCID/events/search" --expect 200 --check items len-ge 1 --quiet  # bug
+  control-agent-server api GET "/api/conversations/$MCID/events/search" --expect 200 --check items len-ge 1 --quiet  # bug: status eq 500
   ```
   `_prepare_persisted_runtime` logs `Failed to import module 'qa_f27_tools'
   ... Tool will not be available.` and promises to go on without the tool.
@@ -765,7 +760,7 @@ Preconditions:
     --check tools contains '{"name": "browser_tool_set", "user_selectable": true, "usable": false'
   control-agent-server restart --env PLAYWRIGHT_BROWSERS_PATH="$PW"
   control-agent-server api GET /api/tools/catalog --expect 200 --quiet --check tools contains '{"name": "terminal", "user_selectable": true, "usable": true'
-  control-agent-server api GET /api/tools/catalog --expect 200 --quiet --check tools contains '{"name": "browser_tool_set", "user_selectable": true, "usable": true' --save F27.browser-playwright-path/catalog  # bug
+  control-agent-server api GET /api/tools/catalog --expect 200 --check tools contains '{"name": "browser_tool_set", "user_selectable": true, "usable": true' --save F27.browser-playwright-path/catalog  # bug: status eq 200 && response.body.tools contains '{"name": "browser_tool_set", "user_selectable": true, "usable": false'
   ```
   The first check shows this server finds no Chromium on its own (no
   standard path, nothing in its private `~/.cache/ms-playwright`). Playwright
@@ -830,27 +825,31 @@ Preconditions:
   The catalog forces `usable: false` although the probe of the previous
   bullet finds Chromium, while the raw registry still lists
   `browser_tool_set` (tools register at import, always with the browser).
-- **Usable tools with the browser disabled (`F27.server-info-browser-disabled`), known bug.**
+- **Usable tools with the browser disabled (`F27.server-info-browser-disabled`).**
   Compare `/server_info` with the catalog on the same server.
+
+  Requires: `F27.browser-probe`, `F27.browser-disabled`
   ```sh
   control-agent-server api GET /api/tools/catalog --expect 200 --quiet --check tools contains '{"name": "browser_tool_set", "user_selectable": true, "usable": false'
-  control-agent-server api GET /server_info --auth none --expect 200 --check usable_tools contains terminal --check usable_tools not-contains browser_tool_set --save F27.server-info-browser-disabled/server-info  # bug
+  control-agent-server api GET /server_info --auth none --expect 200 --check usable_tools contains terminal --check usable_tools not-contains browser_tool_set --save F27.server-info-browser-disabled/server-info
   ```
   Conversations on this server never get the browser, and the catalog says
-  so; `usable_tools` should agree. Today it still lists `browser_tool_set`:
-  `list_usable_tools()` runs only the Chromium probe and ignores
-  `enable_browser`, which only the catalog route applies.
-- **Browser-only sub-agent with the browser disabled (`F27.subagents-browser-disabled`), known bug.**
-  List the built-ins on the same server.
+  so; `usable_tools` agrees and leaves out `browser_tool_set` although the
+  Chromium probe finds it: `/server_info` applies the same config decision
+  (`configured_browser_available`) as the catalog route.
+- **Browser-only sub-agent with the browser disabled (`F27.subagents-browser-disabled`).**
+  List the built-ins on a server with `enable_browser: false` (the restart
+  makes the recipe hold under `--only`, too).
   ```sh
+  control-agent-server restart --config-json '{"enable_browser": false}'
   control-agent-server api GET /api/tools/catalog --expect 200 --quiet --check tools contains '{"name": "browser_tool_set", "user_selectable": true, "usable": false'
-  control-agent-server api POST /api/sub-agents --json '{"load_user": false, "load_project": false}' --expect 200 --check agents contains '"name": "bash-runner"' --check agents not-contains '"name": "web-researcher"' --save F27.subagents-browser-disabled/builtins  # bug
+  control-agent-server api POST /api/sub-agents --json '{"load_user": false, "load_project": false}' --expect 200 --check agents contains '"name": "bash-runner"' --check agents not-contains '"name": "web-researcher"' --save F27.subagents-browser-disabled/builtins
   ```
-  `discover_builtin_agents(enable_browser=False)` drops `web-researcher`,
-  whose only tool is `browser_tool_set`, but the route calls it with the
-  default `True` regardless of the server config, so today all four
-  built-ins are listed and a client can offer a sub-agent that has no usable
-  tool. The server also registers the built-in agents for conversations with
+  The route passes the configured browser availability (the catalog's
+  `configured_browser_available`) to `discover_builtin_agents`, so
+  `web-researcher`, whose only tool is `browser_tool_set`, is left out and
+  a client never offers a sub-agent without a usable tool; the other three
+  built-ins stay. The server also registers the built-in agents for conversations with
   `enable_browser=True` at import (`tool_router.py`), so by source the
   delegation registry that a conversation's task tool reads still holds
   `web-researcher` (not driven here).
@@ -869,7 +868,8 @@ Preconditions:
   control-agent-server api GET /api/tools/catalog --expect 200 --quiet \
     --check tools contains '{"name": "browser_tool_set", "user_selectable": true, "usable": false'
   control-agent-server restart --reset-config --config-json '{"conversation_runtime": "docker"}'
-  control-agent-server api GET /server_info --auth none --expect 200 --check conversation_runtime eq docker
+  control-agent-server api GET /server_info --auth none --expect 200 --check conversation_runtime eq docker \
+    --check usable_tools contains browser_tool_set
   control-agent-server api GET /api/tools/catalog --expect 200 --quiet \
     --check tools contains '{"name": "browser_tool_set", "user_selectable": true, "usable": true' \
     --check tools contains '{"name": "terminal", "user_selectable": true, "usable": true' \
@@ -879,11 +879,10 @@ Preconditions:
   A `-minimal` tag of the stock image and `conversation_image_has_browser:
   false` make the browser unusable; the stock image (the default
   `conversation_image`) makes it usable although the server process has no
-  Chromium (`F27.browser-probe` showed it unusable without the link). In this
-  mode `/server_info` `usable_tools` still reports what the server process
-  itself probes, so it leaves `browser_tool_set` out here: the same gap as
-  `F27.server-info-browser-disabled`, not asserted because on a machine with
-  a system Chromium the process probe finds it.
+  Chromium (`F27.browser-probe` showed it unusable without the link), and
+  `/server_info` `usable_tools` follows the catalog for the browser, so it
+  lists `browser_tool_set` here too. Its other entries still come from the
+  server process's own probes.
 
 ## Gotchas
 
@@ -900,9 +899,9 @@ Preconditions:
   reports the PascalCase name (`hook_event_type: PreToolUse`). The `async`
   flag is serialized as `async`.
 - The sub-agents catalog validates frontmatter only. It does not resolve
-  `skills`, `tools` or `model` (a profile name); those fail later, when a
-  conversation registers the agents (`F27.subagents-bad-skill`) or spawns
-  one. Plugin agents and programmatic registrations are not listed.
+  `skills`, `tools` or `model` (a profile name); a missing skill is skipped
+  with a warning when a conversation registers the agents
+  (`F27.subagents-bad-skill`), the others fail when it spawns one. Plugin agents and programmatic registrations are not listed.
 - `$OH_PERSISTENCE_DIR/agents` replaces `~/.openhands/agents` for user
   agents; in a launched run both are `<run>/home/.openhands/agents`, so the
   bullets cannot tell the two apart.
