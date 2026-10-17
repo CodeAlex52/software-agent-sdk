@@ -642,13 +642,14 @@ Preconditions:
   control-agent-server api DELETE "/api/conversations/$DEL" --expect 200 --save "F07.deleted-close/delete-$DEL"
   control-agent-server api GET "/api/conversations/$DEL" --expect 404
   control-agent-server ws listen "/sockets/session/$DEL" --duration 5 --expect-close 4004 --expect-frames 0
-  control-agent-server ws stop "del-$DEL" --save "F07.deleted-close/socket-$DEL" | control-agent-server assert --check close.code eq 1012
+  control-agent-server ws stop "del-$DEL" --save "F07.deleted-close/socket-$DEL" | control-agent-server assert --check close.code eq 4004
   ```
-  The server closes the open socket with 1012 while it deletes the
-  conversation: `EventService.close()` awaits `PubSub.close()`, which closes
-  the `_SessionSubscriber`'s socket and stops its writer, before the DELETE
-  answers, so the close has arrived by the time the capture is stopped. The
-  legacy events socket is closed the same way (`F06.ws-delete-close`).
+  The server closes the open socket with 4004 while it deletes the
+  conversation: `delete_conversation` calls `EventService.close_connections`,
+  which sends the frames already queued, closes the `_SessionSubscriber`'s
+  socket and stops its writer, before the DELETE answers, so the close has
+  arrived by the time the capture is stopped. The legacy events socket is
+  closed the same way (`F06.ws-delete-close`).
 
 ## Gotchas
 

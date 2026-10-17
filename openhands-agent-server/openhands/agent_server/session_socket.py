@@ -205,7 +205,7 @@ class _SessionSubscriber(Subscriber[Event]):
             return
         self._emit(event)
 
-    async def close(self) -> None:
+    async def close_connection(self, code: int, reason: str) -> None:
         # Send what is already queued, then the close code; the writer then
         # stops, which also ends the handler's inbound loop. A peer that stopped
         # reading gets the same bound as the close itself.
@@ -214,7 +214,7 @@ class _SessionSubscriber(Subscriber[Event]):
                 self.writer.wait_idle(),
                 timeout=sockets.SUBSCRIBER_CLOSE_TIMEOUT_SECONDS,
             )
-        await _close_subscribed_websocket(self.writer.websocket)
+        await _close_subscribed_websocket(self.writer.websocket, code, reason)
         await self.writer.aclose()
 
     def _emit(self, event: Event) -> None:

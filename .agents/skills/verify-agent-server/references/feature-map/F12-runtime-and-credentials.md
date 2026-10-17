@@ -337,7 +337,7 @@ control-agent-server api GET "/api/conversations/$R" --check execution_status eq
   The pause returns 204 well within 10 s although the model call would hang
   for 300 s; the conversation is `paused`, its log has one `PauseEvent` and
   one `InterruptEvent`, and the socket received both and the `paused` status.
-- **Open sockets across a pause (`F12.sandbox-pause-websocket`).**
+- **Open sockets across a pause (`F12.sandbox-pause-websocket`), known bug.**
   An events socket and a session socket opened before the pause, a message
   posted after it, and fresh sockets of both kinds as the positive control.
   ```sh
@@ -358,17 +358,22 @@ control-agent-server api GET "/api/conversations/$R" --check execution_status eq
   OLD_SESSION=$(control-agent-server ws stop f12-before-session --wait 5 --save F12.sandbox-pause-websocket/old-session-socket)
   printf '%s\n%s\n' "$OLD" "$OLD_SESSION" | jq -c '{close, kinds}'
   echo "$OLD" | jq -c '{opened, close, messages: (.kinds.MessageEvent // 0)} | .closed_or_streaming = (.close != null or .messages >= 1)' \
-    | control-agent-server assert --check closed_or_streaming eq true
+    | control-agent-server assert --check closed_or_streaming eq true  # bug: value.opened eq true && value.close missing && value.messages eq 0
   echo "$OLD_SESSION" | jq -c '{opened, close, messages: (.kinds["durable:MessageEvent"] // 0)} | .closed_or_streaming = (.close != null or .messages >= 1)' \
-    | control-agent-server assert --check closed_or_streaming eq true
+    | control-agent-server assert --check closed_or_streaming eq true  # bug: value.opened eq true && value.close missing && value.messages eq 0
   ```
-  A socket that was open before the pause is closed by the server with 1012
-  before the pause answers, so the client reconnects; the fresh sockets
-  receive `QA_F12_AFTER_PAUSE`. Closing the conversation's pub/sub closes
-  each socket subscriber (`_WebSocketSubscriber` and the session socket's
-  `_SessionSubscriber`), so no client stays attached to the discarded
-  `EventService`. Both captures are saved before the assertions, so the
-  evidence holds both.
+  Correct behavior: a socket that was open before the pause is closed by
+  the server (so the client reconnects) or keeps streaming. Today both stay
+  open and silent: `close` is `null` and neither receives the
+  `QA_F12_AFTER_PAUSE` message that the fresh sockets get (the events socket
+  keeps its one initial `ConversationStateUpdateEvent`, the session socket
+  its `sync` frame and initial state; still the same 20 s later). The pause
+  closes the conversation's pub/sub without closing the socket subscribers
+  (`_WebSocketSubscriber` and the session socket's `_SessionSubscriber`
+  inherit the no-op `Subscriber.close()`), leaving the clients attached to a
+  discarded `EventService`. Idle eviction avoids this by never evicting a
+  conversation with an external subscriber; the pause has no such guard.
+  Both captures are saved before the assertions, so the evidence holds both.
 - **Unsupported secret names (`F12.binding-unsupported-secret`).** Only
   `CODEX_AUTH_JSON` is a file credential.
   ```sh
@@ -876,9 +881,9 @@ control-agent-server api GET "/api/conversations/$R" --check execution_status eq
 - `prepare-for-sandbox-pause` unloads every conversation of the server at
   once, under an exclusive lifecycle lock; it waits up to 10 s per in-flight
   run. A failure closing one conversation surfaces as a 500 after the others
-  closed, and pending bindings are then kept. Sockets that were open are
-  closed with 1012 (`F12.sandbox-pause-websocket`), so a client reconnects
-  to the reloaded conversation.
+  closed, and pending bindings are then kept. Sockets that were open stay
+  attached to the closed service (`F12.sandbox-pause-websocket`), so a client
+  must reconnect on its own after a pause.
 - `sink read --wait` polls until `--expect-min` holds; the in-flight model
   call in `F12.sandbox-pause-running` and the switched LLM's call in
   `F12.managed-key-switch` are awaited that way before anything is

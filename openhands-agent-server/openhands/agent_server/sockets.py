@@ -517,23 +517,16 @@ async def _safe_close_websocket(
         logger.debug("WebSocket close failed (may already be closed)")
 
 
-# Sent to a socket whose conversation the server tears down under it (delete,
-# sandbox pause, shutdown). "Service restart" tells clients to reconnect: after
-# a pause they reattach to the reloaded conversation, and after a delete the
-# reconnect gets 4004, which the SDK treats as final.
-CONVERSATION_CLOSED_CODE = 1012
-# A peer that stopped reading must not hold up the DELETE or the pause.
+# A peer that stopped reading must not hold up the DELETE or the shutdown.
 SUBSCRIBER_CLOSE_TIMEOUT_SECONDS = 5.0
 
 
-async def _close_subscribed_websocket(websocket: WebSocket) -> None:
+async def _close_subscribed_websocket(
+    websocket: WebSocket, code: int, reason: str
+) -> None:
     try:
         await asyncio.wait_for(
-            _safe_close_websocket(
-                websocket,
-                code=CONVERSATION_CLOSED_CODE,
-                reason="Conversation closed",
-            ),
+            _safe_close_websocket(websocket, code=code, reason=reason),
             timeout=SUBSCRIBER_CLOSE_TIMEOUT_SECONDS,
         )
     except TimeoutError:
@@ -572,9 +565,9 @@ class _WebSocketSubscriber(Subscriber):
     async def __call__(self, event: Event):
         await _send_event(event, self.websocket)
 
-    async def close(self):
+    async def close_connection(self, code: int, reason: str) -> None:
         # The handler is parked in receive_json(); closing ends it too.
-        await _close_subscribed_websocket(self.websocket)
+        await _close_subscribed_websocket(self.websocket, code, reason)
 
 
 async def _send_bash_event(event: BashEventBase, websocket: WebSocket):

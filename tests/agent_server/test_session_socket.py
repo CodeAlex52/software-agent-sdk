@@ -401,16 +401,16 @@ async def test_a_dropped_progress_frame_does_not_drop_the_connection():
 
 @pytest.mark.asyncio
 async def test_subscriber_close_closes_socket_and_ends_inbound_loop():
-    """PubSub.close() (delete, pause) must close the socket, not leave it silent."""
+    """Delete and shutdown close the socket with their code, not leave it silent."""
     ws, log = _FakeWebSocket(), _FakeEventLog()
     writer = _ConnectionWriter(ws)  # type: ignore[arg-type]
     writer.start()
     sub = _SessionSubscriber(writer=writer, events=log)  # type: ignore[arg-type]
     sub.go_live(None)
 
-    await sub.close()
+    await sub.close_connection(4004, "Conversation deleted")
 
-    assert ws.closed_with == (1012, "Conversation closed")
+    assert ws.closed_with == (4004, "Conversation deleted")
     # The handler's inbound loop races this event; it must now be set.
     assert writer.closed_event.is_set()
     assert writer.drop_reason == "closing"
@@ -444,15 +444,15 @@ async def test_subscriber_close_sends_queued_frames_before_closing():
         log.add(event)
         await sub(event)
 
-    await sub.close()
+    await sub.close_connection(4004, "Conversation deleted")
 
     assert sent_before_close == [3]
-    assert ws.closed_with == (1012, "Conversation closed")
+    assert ws.closed_with == (4004, "Conversation deleted")
 
 
 @pytest.mark.asyncio
 async def test_subscriber_close_is_bounded_for_stalled_peer(monkeypatch):
-    """A peer that stopped reading cannot hold up the delete or the pause."""
+    """A peer that stopped reading cannot hold up the delete or the shutdown."""
     monkeypatch.setattr(
         "openhands.agent_server.sockets.SUBSCRIBER_CLOSE_TIMEOUT_SECONDS", 0.05
     )
@@ -470,6 +470,8 @@ async def test_subscriber_close_is_bounded_for_stalled_peer(monkeypatch):
     await sub(_msg("stuck"))
     await _drain(writer)
 
-    await asyncio.wait_for(sub.close(), timeout=2)
+    await asyncio.wait_for(
+        sub.close_connection(4004, "Conversation deleted"), timeout=2
+    )
 
     assert writer.closed_event.is_set()

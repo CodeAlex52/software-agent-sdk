@@ -337,19 +337,20 @@ def test_delete_closes_open_conversation_sockets(server_env, socket_kind):
             code = _assert_closed_by_server(ws)
         assert client.get(f"/api/conversations/{conversation_id}").status_code == 404
 
-    assert code == 1012
+    assert code == 4004  # final for clients: no reconnect
     with connect(f"{ws_host}/sockets/{socket_kind}/{conversation_id}") as ws:
         assert _assert_closed_by_server(ws) == 4004
 
 
 @pytest.mark.parametrize("socket_kind", ["events", "session"])
-def test_sandbox_pause_closes_open_conversation_sockets(server_env, socket_kind):
-    """A pause closes pre-pause sockets so clients reconnect (#5635)."""
+def test_sandbox_pause_leaves_open_sockets_attached(server_env, socket_kind):
+    """A pause does not close sockets: today's clients reconnect on any close,
+    and the reconnect would load the conversation again before the freeze."""
     ws_host = server_env["host"].replace("http://", "ws://")
+    service = server_env["conversation_service"]
     with httpx.Client(base_url=server_env["host"]) as client:
         conversation_id = _start_idle_conversation(client)
-        socket_url = f"{ws_host}/sockets/{socket_kind}/{conversation_id}"
-        with connect(socket_url) as before:
+        with connect(f"{ws_host}/sockets/{socket_kind}/{conversation_id}") as before:
             before.recv(timeout=10)
 
             response = client.post(
@@ -357,18 +358,11 @@ def test_sandbox_pause_closes_open_conversation_sockets(server_env, socket_kind)
             )
             assert response.status_code == 204
 
-            assert _assert_closed_by_server(before) == 1012
-
-        # The conversation is resumable: a reconnecting client streams again.
-        with connect(socket_url) as after:
-            after.recv(timeout=10)
-            sent = client.post(
-                f"/api/conversations/{conversation_id}/events",
-                json={"content": [{"type": "text", "text": "after-pause"}]},
-            )
-            assert sent.status_code == 200
-            while "after-pause" not in str(after.recv(timeout=10)):
-                pass
+            # Leftover initial frames may still arrive; a close would raise.
+            with pytest.raises(TimeoutError):
+                while True:
+                    before.recv(timeout=2)
+            assert UUID(conversation_id) not in service._event_services
 
 
 @pytest.fixture

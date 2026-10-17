@@ -666,22 +666,32 @@ async def test_resend_mode_takes_precedence_over_resend_all(
 
 
 @pytest.mark.asyncio
-async def test_websocket_subscriber_close_closes_socket(mock_websocket):
-    """PubSub.close() (delete, pause) must close the socket, not leave it silent."""
+async def test_websocket_subscriber_close_connection_closes_socket(mock_websocket):
+    """Delete and shutdown close the socket with their code, not leave it silent."""
+    subscriber = _WebSocketSubscriber(websocket=mock_websocket)
+
+    await subscriber.close_connection(4004, "Conversation deleted")
+
+    mock_websocket.close.assert_awaited_once_with(
+        code=4004, reason="Conversation deleted"
+    )
+
+
+@pytest.mark.asyncio
+async def test_websocket_subscriber_close_leaves_socket_open(mock_websocket):
+    """PubSub.close() alone (sandbox pause) does not close the socket."""
     subscriber = _WebSocketSubscriber(websocket=mock_websocket)
 
     await subscriber.close()
 
-    mock_websocket.close.assert_awaited_once_with(
-        code=1012, reason="Conversation closed"
-    )
+    mock_websocket.close.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_websocket_subscriber_close_is_bounded_for_stalled_peer(
     mock_websocket, monkeypatch
 ):
-    """A peer that stopped reading cannot hold up the delete or the pause."""
+    """A peer that stopped reading cannot hold up the delete or the shutdown."""
     import asyncio
 
     monkeypatch.setattr(
@@ -695,6 +705,8 @@ async def test_websocket_subscriber_close_is_bounded_for_stalled_peer(
     mock_websocket.close.side_effect = hang
     subscriber = _WebSocketSubscriber(websocket=mock_websocket)
 
-    await asyncio.wait_for(subscriber.close(), timeout=2)
+    await asyncio.wait_for(
+        subscriber.close_connection(4004, "Conversation deleted"), timeout=2
+    )
 
     mock_websocket.close.assert_awaited_once()

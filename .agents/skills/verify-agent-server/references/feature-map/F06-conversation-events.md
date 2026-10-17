@@ -419,13 +419,13 @@ Preconditions:
   control-agent-server api DELETE "/api/conversations/$QA_DEL" --expect 200 --save F06.ws-delete-close/delete
   control-agent-server api GET "/api/conversations/$QA_DEL" --expect 404
   control-agent-server ws listen "/sockets/events/$QA_DEL" --expect-close 4004 --duration 5
-  control-agent-server ws stop f06-del --save F06.ws-delete-close/socket | control-agent-server assert --check close.code eq 1012
+  control-agent-server ws stop f06-del --save F06.ws-delete-close/socket | control-agent-server assert --check close.code eq 4004
   ```
-  The server closes the open socket with 1012 while it deletes the
-  conversation: `EventService.close()` awaits `PubSub.close()`, which closes
-  each `_WebSocketSubscriber`'s socket, before the DELETE answers, so the
-  close has arrived by the time the capture is stopped. 1012 asks the client
-  to reconnect; the reconnect gets 4004, which the SDK treats as final.
+  The server closes the open socket with 4004 while it deletes the
+  conversation: `delete_conversation` calls `EventService.close_connections`,
+  which closes each `_WebSocketSubscriber`'s socket, before the DELETE
+  answers, so the close has arrived by the time the capture is stopped. The
+  SDK treats 4004 as final and stops instead of reconnecting.
 - **Replay everything (`F06.ws-replay-all`).**
   ```sh
   IDS=$(control-agent-server api GET "/api/conversations/$CID/events/search" --field items | jq -c '[.[].id]')
@@ -720,10 +720,11 @@ Preconditions:
   after the upgrade; a wrong deprecated query or header key is refused before
   the upgrade (HTTP 403, no close code), which the SDK does not treat as
   fatal.
-- Deleting a conversation, pausing the sandbox or shutting the server down
-  closes the conversation's open sockets with 1012 (`F06.ws-delete-close`);
-  a new connection after a delete gets 4004. A peer that stopped reading
-  delays the DELETE by at most 5 s.
+- Deleting a conversation closes its open sockets with 4004
+  (`F06.ws-delete-close`), and a new connection gets 4004 too; shutting the
+  server down closes them with 1012. A sandbox pause leaves them attached
+  (`F12.sandbox-pause-websocket`). A peer that stopped reading delays the
+  DELETE by at most 5 s.
 - `StreamingDeltaEvent` frames reach this socket only when the agent's LLM
   has `stream: true`; they are never persisted, so search never returns them.
 - A per-field `execution_status=finished` frame is a hint, not the end of
