@@ -1837,6 +1837,27 @@ def test_update_conversation_invalid_title(
         client.app.dependency_overrides.clear()
 
 
+@pytest.mark.parametrize("title", ["   ", "\t\n"])
+def test_update_conversation_whitespace_only_title_rejected(
+    client, mock_conversation_service, sample_conversation_id, title
+):
+    """A whitespace-only title is rejected like an empty one (422) and the
+    service is never called, so the stored title is kept."""
+
+    client.app.dependency_overrides[get_conversation_service] = lambda: (
+        mock_conversation_service
+    )
+
+    try:
+        response = client.patch(
+            f"/api/conversations/{sample_conversation_id}", json={"title": title}
+        )
+        assert response.status_code == 422
+        mock_conversation_service.update_conversation.assert_not_called()
+    finally:
+        client.app.dependency_overrides.clear()
+
+
 def test_generate_title_endpoint_removed_from_openapi(client):
     response = client.get("/openapi.json")
     assert response.status_code == 200
@@ -3050,6 +3071,38 @@ def test_start_conversation_client_tool_registration_error_returns_422(
 
         assert response.status_code == 422
         assert "collides with an existing non-client tool" in response.json()["detail"]
+    finally:
+        client.app.dependency_overrides.clear()
+
+
+def test_start_conversation_unavailable_agent_tool_returns_422(
+    client, mock_conversation_service
+):
+    """An agent tool whose module the server cannot import yields 422, not 500."""
+    from openhands.agent_server.conversation_service import UnavailableAgentTool
+
+    mock_conversation_service.start_conversation.side_effect = UnavailableAgentTool(
+        "The agent uses tools whose modules the agent server cannot import: "
+        "'qa_ghost_tool' (qa_ghost: No module named 'qa_ghost')"
+    )
+    client.app.dependency_overrides[get_conversation_service] = lambda: (
+        mock_conversation_service
+    )
+    request = StartConversationRequest(
+        agent=Agent(
+            llm=LLM(model="gpt-4o", api_key=SecretStr("test-key"), usage_id="t"),
+            tools=[],
+        ),
+        workspace=LocalWorkspace(working_dir="/tmp/test"),
+    )
+
+    try:
+        response = client.post(
+            "/api/conversations", json=request.model_dump(mode="json")
+        )
+
+        assert response.status_code == 422
+        assert "'qa_ghost_tool'" in response.json()["detail"]
     finally:
         client.app.dependency_overrides.clear()
 
