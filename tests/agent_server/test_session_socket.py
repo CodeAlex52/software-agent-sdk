@@ -417,6 +417,40 @@ async def test_subscriber_close_closes_socket_and_ends_inbound_loop():
 
 
 @pytest.mark.asyncio
+async def test_subscriber_close_sends_queued_frames_before_closing():
+    """Frames already admitted reach the client ahead of the close code."""
+    ws, log = _FakeWebSocket(), _FakeEventLog()
+    sent_before_close: list[int] = []
+    original_close = ws.close
+
+    async def close(code: int = 1000, reason: str | None = None) -> None:
+        sent_before_close.append(len(ws.sent))
+        await original_close(code, reason)
+
+    original_send = ws.send_text
+
+    async def slow_send(payload: str) -> None:
+        await asyncio.sleep(0.01)  # a real socket send yields to the loop
+        await original_send(payload)
+
+    ws.close = close  # type: ignore[method-assign]
+    ws.send_text = slow_send  # type: ignore[method-assign]
+    writer = _ConnectionWriter(ws)  # type: ignore[arg-type]
+    writer.start()
+    sub = _SessionSubscriber(writer=writer, events=log)  # type: ignore[arg-type]
+    sub.go_live(None)
+    for i in range(3):
+        event = _msg(f"q{i}")
+        log.add(event)
+        await sub(event)
+
+    await sub.close()
+
+    assert sent_before_close == [3]
+    assert ws.closed_with == (1012, "Conversation closed")
+
+
+@pytest.mark.asyncio
 async def test_subscriber_close_is_bounded_for_stalled_peer(monkeypatch):
     """A peer that stopped reading cannot hold up the delete or the pause."""
     monkeypatch.setattr(

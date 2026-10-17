@@ -687,7 +687,12 @@ async def test_websocket_subscriber_close_is_bounded_for_stalled_peer(
     monkeypatch.setattr(
         "openhands.agent_server.sockets.SUBSCRIBER_CLOSE_TIMEOUT_SECONDS", 0.05
     )
-    mock_websocket.close.side_effect = lambda **_: asyncio.Event().wait()
+
+    async def hang(**_):
+        await asyncio.Event().wait()
+
+    # An async side_effect is awaited; a lambda returning a coroutine is not.
+    mock_websocket.close.side_effect = hang
     subscriber = _WebSocketSubscriber(websocket=mock_websocket)
 
     await asyncio.wait_for(subscriber.close(), timeout=2)
