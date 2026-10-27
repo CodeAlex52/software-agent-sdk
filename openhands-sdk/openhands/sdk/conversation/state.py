@@ -263,11 +263,10 @@ class ConversationState(OpenHandsModel):
     def _resolve_active_leaf(self) -> EventID | None:
         """The effective HEAD, resolving a ``None`` ``leaf_event_id`` by lineage.
 
-        A set leaf is returned as-is — unless its file is gone from a damaged
-        event log, in which case it falls back to the lineage below, like a
-        ``None`` leaf (pre-feature conversation) does: the last *real* event
-        becomes HEAD so history stays loadable (#6174). ``head_is_empty`` marks
-        a deliberate empty HEAD (``navigate_to(None)``) -> no active branch.
+        A set leaf is returned as-is. ``head_is_empty`` marks a deliberate empty
+        HEAD (``navigate_to(None)``) -> no active branch. Otherwise a ``None`` leaf
+        (pre-feature conversation) falls back to the last *real* event, so legacy
+        history loads unbranched.
 
         Trailing non-tree artifacts -- a ``ConversationStateUpdateEvent`` or
         ``ConversationErrorEvent`` a newer server may have written onto a legacy
@@ -277,16 +276,7 @@ class ConversationState(OpenHandsModel):
         cut the legacy linear fallback and strand all prior history (#4057).
         """
         if self.leaf_event_id is not None:
-            if self.leaf_event_id in self._events or len(self._events) == 0:
-                return self.leaf_event_id
-            # The persisted leaf's file is gone (damaged event log): resolve
-            # HEAD from the surviving events instead of failing every event
-            # read with "Unknown event_id" (#6174).
-            logger.warning(
-                "Persisted leaf event '%s' is missing from the event log; "
-                "resolving HEAD from the surviving events instead.",
-                self.leaf_event_id,
-            )
+            return self.leaf_event_id
         if self.head_is_empty:
             return None
         if len(self._events) == 0:
@@ -301,6 +291,28 @@ class ConversationState(OpenHandsModel):
             if not isinstance(self._events[i], artifacts):
                 return self._events.get_id(i)
         return None
+
+    def _repair_missing_leaf(self) -> bool:
+        """Move a persisted HEAD whose event file was lost onto a surviving event.
+
+        The lost event held its own parent, so the branch it was on cannot be
+        recovered; HEAD falls back to the lineage rule (the last real event, or
+        no HEAD for an empty log), and the warning says so. Returns whether
+        HEAD was moved.
+        """
+        lost = self.leaf_event_id
+        if lost is None or lost in self._events:
+            return False
+        self.leaf_event_id = None
+        self.leaf_event_id = self._resolve_active_leaf()
+        logger.warning(
+            "HEAD event '%s' is missing from the event log (its file was lost); "
+            "moved HEAD to '%s', the last surviving event. If HEAD was on "
+            "another branch, navigate back to it.",
+            lost,
+            self.leaf_event_id,
+        )
+        return True
 
     def active_branch(self, limit: int | None = None) -> list[Event]:
         """Raw events on the active branch (``path_to_root(leaf)``), root-first.
@@ -550,6 +562,7 @@ class ConversationState(OpenHandsModel):
             state._fs = file_store
             state._events = EventLog(file_store, dir_path=EVENTS_DIR)
             state._cipher = cipher
+            head_repaired = state._repair_missing_leaf()
 
             # Cold-load: rebuild the cached view with full property
             # enforcement — persisted events may come from an older code
@@ -558,6 +571,8 @@ class ConversationState(OpenHandsModel):
 
             # Commit runtime-provided values (may autosave)
             state._autosave_enabled = True
+            if head_repaired:  # persist it so the next load does not repeat it
+                state._save_base_state(file_store)
             # Agent: base_state.json is the single source of truth. When the
             # caller does not supply an agent (``agent is None``), keep the
             # persisted one untouched — this is what lets a persisted
